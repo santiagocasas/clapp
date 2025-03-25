@@ -5,8 +5,8 @@ import tiktoken
 
 # streamlit configuration
 st.set_page_config(
-    page_title="CAMELS Agent",
-    page_icon='images/logo.png',
+    page_title="CLASS Agent",
+    page_icon='images/classAI.png',
     layout="wide",
     initial_sidebar_state="auto",
     menu_items=None
