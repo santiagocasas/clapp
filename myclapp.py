@@ -12,6 +12,10 @@ st.set_page_config(
     menu_items=None
 )
 
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.image("images/classAI.png", width=500)
+
 # --- Initialize Session State ---
 def init_session_state():
     if "messages" not in st.session_state:
@@ -19,10 +23,26 @@ def init_session_state():
 
 init_session_state()
 
-# --- OpenAI Model Selection and API Key ---
-api_key = st.text_input("Enter your OpenAI API key:", type="password")
-assistant_id = st.text_input("Enter your Assistant ID:", type="default")
+# --- Sidebar: OpenAI API Key and Assistant ID ---
 
+with st.sidebar:
+    st.header("🔑 API Settings")
+
+    api_key = st.text_input("OpenAI API Key", type="password")
+
+    assistant_options = {
+        "Default (My CLASS Assistant)": "asst_pq9CSPIkCoLvx3XkLdBUZbGV",
+        "Custom...": "custom"
+    }
+
+    selected_option = st.selectbox("Select Assistant:", list(assistant_options.keys()))
+    
+    if assistant_options[selected_option] == "custom":
+        assistant_id = st.text_input("Enter your custom Assistant ID:")
+    else:
+        assistant_id = assistant_options[selected_option]
+
+# Store keys if provided
 if api_key:
     st.session_state["api_key"] = api_key
 if assistant_id:
@@ -30,6 +50,14 @@ if assistant_id:
 
 # --- Chat Input ---
 prompt = st.chat_input("Type your prompt here...")
+
+# --- Token counting (safe, now prompt exists) ---
+if prompt:
+    encoding = tiktoken.encoding_for_model("gpt-4")
+    token_count = len(encoding.encode(prompt))
+    with st.sidebar:
+        st.markdown(f"🧮 **Tokens in memory:** `{token_count}`")
+
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -86,9 +114,4 @@ if prompt:
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-# Count tokens
-if prompt:
-    encoding = tiktoken.encoding_for_model("gpt-4")
-    token_count = len(encoding.encode(prompt))
-    st.sidebar.write(f"Tokens in memory: {token_count}")
 
