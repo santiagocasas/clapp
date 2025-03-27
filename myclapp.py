@@ -20,11 +20,12 @@ with col2:
 def init_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "thread_id" not in st.session_state:
+        st.session_state.thread_id = None
 
 init_session_state()
 
 # --- Sidebar: OpenAI API Key and Assistant ID ---
-
 with st.sidebar:
     st.header("🔑 API Settings")
 
@@ -42,7 +43,12 @@ with st.sidebar:
     else:
         assistant_id = assistant_options[selected_option]
 
-# Store keys if provided
+    if st.button("🗑️ Reset Chat"):
+        for key in ["messages", "thread_id"]:
+            st.session_state.pop(key, None)
+        st.rerun()
+
+# Store credentials
 if api_key:
     st.session_state["api_key"] = api_key
 if assistant_id:
@@ -51,62 +57,70 @@ if assistant_id:
 # --- Chat Input ---
 prompt = st.chat_input("Type your prompt here...")
 
-# --- Token counting (safe, now prompt exists) ---
+# --- Token Counting ---
 if prompt:
     encoding = tiktoken.encoding_for_model("gpt-4")
     token_count = len(encoding.encode(prompt))
     with st.sidebar:
         st.markdown(f"🧮 **Tokens in memory:** `{token_count}`")
 
-
+# --- Handle Chat and API Call ---
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # --- Get OpenAI Response ---
     if "api_key" in st.session_state and "assistant_id" in st.session_state:
         openai.api_key = st.session_state["api_key"]
-        assistant_id   = st.session_state["assistant_id"]
-        
-        try:
-            # Step 1: Create a thread
-            thread = openai.beta.threads.create()
+        assistant_id = st.session_state["assistant_id"]
 
-            # Step 2: Add a message to the thread
-            message = openai.beta.threads.messages.create(
-                thread_id=thread.id,
+        try:
+            # Step 1: Create thread if it doesn't exist
+            if not st.session_state.get("thread_id"):
+                thread = openai.beta.threads.create()
+                st.session_state["thread_id"] = thread.id
+
+            thread_id = st.session_state["thread_id"]
+
+            # Step 2: Add message to thread
+            openai.beta.threads.messages.create(
+                thread_id=thread_id,
                 role="user",
                 content=prompt
             )
 
-            # Step 3: Run your assistant
+            # Step 3: Run assistant
             run = openai.beta.threads.runs.create(
-                thread_id=thread.id,
+                thread_id=thread_id,
                 assistant_id=assistant_id
             )
 
-            # Wait until the assistant responds (polling)
+            # Step 4: Wait until the run is done
             while True:
                 run_status = openai.beta.threads.runs.retrieve(
-                    thread_id=thread.id,
+                    thread_id=thread_id,
                     run_id=run.id
                 )
                 if run_status.status in ['completed', 'failed', 'cancelled', 'expired']:
                     break
                 time.sleep(1)
 
-            # Retrieve assistant's response
-            messages = openai.beta.threads.messages.list(thread_id=thread.id)
+            # Step 5: Get ONLY messages generated in this run
+            response_messages = openai.beta.threads.messages.list(
+                thread_id=thread_id,
+                run_id=run.id
+            )
 
-            assistant_response = ""
-            for msg in reversed(messages.data):
+            assistant_response = None
+            for msg in reversed(response_messages.data):
                 if msg.role == "assistant":
                     assistant_response = msg.content[0].text.value
-                    break #Only get the last assistant message
+                    break
 
-            st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+            # Step 6: Save the assistant response
+            if assistant_response:
+                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
 
-        except Exception as e:
-            st.error(f"Error during OpenAI API call: {e}")
+        except:
+            raise ValueError("A problem appeared") 
     else:
         st.warning("Please enter your OpenAI API key and Assistant ID.")
 
@@ -114,4 +128,3 @@ if prompt:
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-
