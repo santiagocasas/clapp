@@ -91,6 +91,11 @@ with st.sidebar:
         # Initialize components only once
         #if st.session_state.llm is None:
 
+        st.session_state.llm = ChatOpenAI(
+                model_name=st.session_state.selected_model,
+                openai_api_key=api_key,
+                temperature=0.2
+        )
 
 
 
