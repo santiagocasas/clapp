@@ -5,6 +5,9 @@ import streamlit as st
 import time
 import json
 import os
+import base64
+import getpass
+from cryptography.fernet import Fernet
 from langchain.chat_models import ChatOpenAI
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -51,7 +54,9 @@ def read_prompt_from_file(path):
 
 keys = read_keys_from_file("keys-IDs.json")
 Classy_instuctions = read_prompt_from_file("prompts/class_instructions.txt")
+Rating_instuctions = read_prompt_from_file("prompts/rating_instructions.txt")
 
+Refine_instuctions = read_prompt_from_file("prompts/class_refinement.txt")
 # --- Initialize Session State ---
 def init_session():
     if "messages" not in st.session_state:
@@ -60,6 +65,8 @@ def init_session():
         st.session_state.debug = False
     if "llm" not in st.session_state:
         st.session_state.llm = None
+    if "llmBG" not in st.session_state:
+        st.session_state.llmBG = None
     if "memory" not in st.session_state:
         st.session_state.memory = ChatMessageHistory()
     if "vector_store" not in st.session_state:
@@ -78,11 +85,33 @@ with st.sidebar:
     st.header("🔐 API & Assistants")
     api_key = st.text_input("OpenAI API Key", type="password")
 
+    user_password = st.text_input("User Password", type="password")
+
     st.session_state.selected_model = st.selectbox(
         "🧠 Choose LLM model",
         options=["gpt-4o", "gpt-4o-mini", "o3-mini"],
         index=["gpt-4o", "gpt-4o-mini", "o3-mini"].index(st.session_state.selected_model)
     )
+
+    st.write("Fast Mode:")
+    mode_is_fast = st.toggle("Turn off for more refined replies", value=True)
+
+    if user_password:
+        # Recreate encryption key
+        key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
+        fernet = Fernet(key)
+
+        # Load the encrypted private key
+        with open("encrypted_pk.txt", "r") as f:
+            encrypted_pk = f.read()
+
+
+        try:
+            api_key = fernet.decrypt(encrypted_pk.encode()).decode()
+            
+        except Exception as e:
+            raise Exception("Failed to decrypt private key. Wrong password?") from e
+        
 
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
@@ -92,6 +121,11 @@ with st.sidebar:
                 model_name=st.session_state.selected_model,
                 openai_api_key=api_key,
                 temperature=1.0
+        )
+        st.session_state.llmBG = ChatOpenAI(
+                model_name=st.session_state.selected_model,
+                openai_api_key=api_key,
+                temperature=0.2
         )
 
         if st.session_state.vector_store is None:
@@ -153,9 +187,61 @@ def build_messages(context, question, system):
     human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}")
     return [system_msg] + st.session_state.memory.messages + [human_msg]
 
+def build_messages_rating(context, question, answer, system):
+    system_msg = SystemMessage(content=system)
+    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}")
+    return [system_msg] + st.session_state.memory.messages + [human_msg]
+
+def build_messages_refinement(context, question, answer, feedback, system):
+    system_msg = SystemMessage(content=system)
+    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}\n\nReviewer Feedback:\n{feedback}")
+    return [system_msg] + st.session_state.memory.messages + [human_msg]
+
+
 def retrieve_context(question):
     docs = st.session_state.vector_store.similarity_search(question, k=4)
     return "\n\n".join([doc.page_content for doc in docs])
+
+def call_ai(context, user_input):
+    if mode_is_fast:
+        messages = build_messages(context, user_input, Classy_instuctions)
+
+        response = st.session_state.llm.invoke(messages)
+    else:
+        messages = build_messages(context, user_input, Classy_instuctions)
+
+        st.markdown("Thinking ... ")
+        response_1 = st.session_state.llmBG.invoke(messages)
+        
+        # Send grading prompt
+        messages = build_messages_rating(context, user_input,response_1.content, Rating_instuctions)
+
+        grading_response = st.session_state.llmBG.invoke(messages)
+
+        try:
+            grading_data = json.loads(grading_response.content)
+            #st.markdown(f"**Rating:** {grading_data['rating']}/10")
+            #st.markdown(f"**Feedback:** {grading_data['feedback']}")
+
+            if grading_data['rating'] <= 8:
+                #st.warning("⚠️ Rating below threshold — attempting to improve the answer.")
+
+                messages = build_messages_refinement(context, user_input,response_1.content,grading_data['feedback'], Refine_instuctions)
+                response = st.session_state.llmBG.invoke(messages)
+
+
+            else: 
+                response = response_1
+        except json.JSONDecodeError:
+            st.warning("⚠️ Couldn't parse grading response as JSON.")
+            st.text(grading_response.content)
+
+            response = response_1
+        # rate this response by ai
+
+ 
+    return response
+
 
 # --- Chat Input ---
 user_input = st.chat_input("Type your prompt here...")
@@ -174,8 +260,8 @@ if user_input:
 
     st.session_state.memory.add_user_message(user_input)
     context = retrieve_context(user_input)
-    messages = build_messages(context, user_input, Classy_instuctions)
-
+    
+    
     # Count prompt tokens using tiktoken if needed
     try:
         import tiktoken
@@ -198,12 +284,15 @@ if user_input:
                 temperature=0.2
         )
 
-        response = st.session_state.llm.invoke(messages)
+        response = call_ai(context,user_input)
 
     st.session_state.memory.add_ai_message(response.content)
 
     # Save assistant response
     st.session_state.messages.append({"role": "assistant", "content": response.content})
+
+    if not mode_is_fast:
+        st.markdown(response.content)
 
 # --- Debug Info ---
 if st.session_state.debug:
