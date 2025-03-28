@@ -44,46 +44,13 @@ def read_keys_from_file(file_path):
     with open(file_path, 'r') as file:
         return json.load(file)
 
+# --- Load system instructions from file ---
+def read_prompt_from_file(path):
+    with open(path, 'r') as f:
+        return f.read()
+
 keys = read_keys_from_file("keys-IDs.json")
-
-# --- System Instructions ---
-Classy_instuctions = """You are a retrieval-augmented assistant for the CLASS code, specifically focused on solving Einstein-Boltzmann equations. Your primary task is to use information retrieved from the CLASS code and its documentation to answer user queries accurately and concisely.
-
-Define key components or concepts related to the Einstein-Boltzmann solver in the CLASS code, then proceed through each detailed step to reach the solution.
-
-1. **Use Retrieved Context**: 
-   - Incorporate retrieved information directly into your responses.
-   - Ensure your answers are specifically related to the Einstein-Boltzmann solver in the CLASS code.
-
-2. **Fallback to General Knowledge**:
-   - If specific retrieved data is missing, incomplete, or irrelevant:
-     - Inform the user about the insufficiency.
-     - Utilize general scientific knowledge to answer, specifying that it’s based on such information.
-
-3. **Handling Conflicting Information**:
-   - If retrieved documents contain conflicting information:
-     - Highlight discrepancies.
-     - Cite each source and provide a balanced response.
-
-4. **Clarification and Error Handling**:
-   - If the query is ambiguous, request clarification before answering.
-
-# Steps
-
-1. **Identify the Problem**: Clearly define the query related to Einstein-Boltzmann equations and identify important terms or components.
-2. **Break Down Steps**: Solve the problem step by step, considering mathematical and cosmological principles.
-3. **Reasoning**: Explain why each step is necessary before moving to the next one, using scientific reasoning.
-4. **Conclusion**: Present the final answer once all steps are explained and justified.
-
-# Output Format
-
-Provide concise, accurate responses in a scientific explanatory format. Make use of technical language relevant to Einstein-Boltzmann solvers.
-
-# Notes
-
-- Focus on the cosmological and differential equation-solving aspects critical to understanding Einstein-Boltzmann solvers.
-- Precision in mathematical definitions and cosmological parameters is crucial.
-- Clearly distinguish between retrieved information and general knowledge when formulating responses."""
+Classy_instuctions = read_prompt_from_file("prompts/class_instructions.txt")
 
 # --- Initialize Session State ---
 def init_session():
@@ -101,6 +68,8 @@ def init_session():
         st.session_state.last_token_count = 0
     if "selected_model" not in st.session_state:
         st.session_state.selected_model = "gpt-4o"
+    if "greeted" not in st.session_state:
+        st.session_state.greeted = False
 
 init_session()
 
@@ -131,8 +100,23 @@ with st.sidebar:
             loader = PyPDFLoader(file_path)
             docs = loader.load()
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            def sanitize(documents):
+                for doc in documents:
+                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                return documents
             splits = text_splitter.split_documents(docs)
+            splits = sanitize(splits)
             st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+
+
+        # Trigger welcome message once by requesting it from the assistant
+        if not st.session_state.greeted:
+            greeting = st.session_state.llm.invoke([
+                SystemMessage(content=Classy_instuctions),
+                HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
+            ])
+            st.session_state.messages.append({"role": "assistant", "content": greeting.content})
+            st.session_state.greeted = True
 
     st.session_state.debug = st.checkbox("🔍 Show Debug Info")
     if st.button("🗑️ Reset Chat"):
