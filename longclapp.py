@@ -2,7 +2,6 @@
 # Install it with: pip install streamlit openai langchain langchain-openai langchain-community
 
 import streamlit as st
-import openai
 import time
 import json
 import os
@@ -86,7 +85,6 @@ with st.sidebar:
     )
 
     if api_key:
-        openai.api_key = api_key
         os.environ["OPENAI_API_KEY"] = api_key
 
         # First initialization without streaming
