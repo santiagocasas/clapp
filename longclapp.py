@@ -14,6 +14,7 @@ from langchain.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.memory import ChatMessageHistory
+from langchain_core.documents import Document
 
 from langchain.callbacks.base import BaseCallbackHandler
 
@@ -88,31 +89,48 @@ with st.sidebar:
         openai.api_key = api_key
         os.environ["OPENAI_API_KEY"] = api_key
 
-        # Initialize components only once
-        #if st.session_state.llm is None:
-
+        # First initialization without streaming
         st.session_state.llm = ChatOpenAI(
                 model_name=st.session_state.selected_model,
                 openai_api_key=api_key,
-                temperature=0.2
+                temperature=1.0
         )
-
-
 
         if st.session_state.vector_store is None:
             embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-            file_path = "./class-data/CLASS_MANUAL.pdf"
-            loader = PyPDFLoader(file_path)
-            docs = loader.load()
+            
+            # Get all files from class-data directory
+            all_docs = []
+            for filename in os.listdir("./class-data"):
+                file_path = os.path.join("./class-data", filename)
+                
+                if filename.endswith('.pdf'):
+                    # Handle PDF files
+                    loader = PyPDFLoader(file_path)
+                    docs = loader.load()
+                    all_docs.extend(docs)
+                elif filename.endswith(('.txt', '.py')):  # Added .py extension
+                    # Handle text and Python files
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                        # Create a document with metadata
+                        all_docs.append(Document(
+                            page_content=text,
+                            metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
+                        ))
+
+            # Split and process all documents
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
             def sanitize(documents):
                 for doc in documents:
                     doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
                 return documents
-            splits = text_splitter.split_documents(docs)
+                
+            splits = text_splitter.split_documents(all_docs)
             splits = sanitize(splits)
+            
+            # Create vector store from all documents
             st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-
 
         # Trigger welcome message once by requesting it from the assistant
         if not st.session_state.greeted:
@@ -168,12 +186,12 @@ if user_input:
     except:
         st.session_state.last_token_count = 0
 
-
     # Stream assistant response
     with st.chat_message("assistant"):
         stream_box = st.empty()
         stream_handler = StreamHandler(stream_box)
 
+        # Second initialization with streaming
         st.session_state.llm = ChatOpenAI(
                 model_name=st.session_state.selected_model,
                 streaming=True,
@@ -182,15 +200,12 @@ if user_input:
                 temperature=0.2
         )
 
-
         response = st.session_state.llm.invoke(messages)
 
     st.session_state.memory.add_ai_message(response.content)
 
     # Save assistant response
     st.session_state.messages.append({"role": "assistant", "content": response.content})
-
-
 
 # --- Debug Info ---
 if st.session_state.debug:
