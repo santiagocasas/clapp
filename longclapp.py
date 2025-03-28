@@ -15,6 +15,18 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.memory import ChatMessageHistory
 
+from langchain.callbacks.base import BaseCallbackHandler
+
+
+class StreamHandler(BaseCallbackHandler):
+    def __init__(self, container):
+        self.container = container
+        self.text = ""
+
+    def on_llm_new_token(self, token: str, **kwargs):
+        self.text += token
+        self.container.markdown(self.text + "▌")
+
 # --- Streamlit Page Config ---
 st.set_page_config(
     page_title="CLASS Agent",
@@ -108,14 +120,10 @@ with st.sidebar:
         os.environ["OPENAI_API_KEY"] = api_key
 
         # Initialize components only once
-        if st.session_state.llm is None:
-            st.session_state.llm = ChatOpenAI(
-                model_name=st.session_state.selected_model,
-                streaming=True,
-                callbacks=[StreamingStdOutCallbackHandler()],
-                openai_api_key=api_key,
-                temperature=0.2
-            )
+        #if st.session_state.llm is None:
+
+
+
 
         if st.session_state.vector_store is None:
             embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
@@ -171,21 +179,29 @@ if user_input:
     except:
         st.session_state.last_token_count = 0
 
-    response = st.session_state.llm.invoke(messages)
-    st.session_state.memory.add_ai_message(response.content)
 
     # Stream assistant response
     with st.chat_message("assistant"):
         stream_box = st.empty()
-        typed = ""
-        for char in response.content:
-            typed += char
-            stream_box.markdown(typed + "▌")
-            time.sleep(0.01)
-        stream_box.markdown(typed)
+        stream_handler = StreamHandler(stream_box)
+
+        st.session_state.llm = ChatOpenAI(
+                model_name=st.session_state.selected_model,
+                streaming=True,
+                callbacks=[stream_handler],
+                openai_api_key=api_key,
+                temperature=0.2
+        )
+
+
+        response = st.session_state.llm.invoke(messages)
+
+    st.session_state.memory.add_ai_message(response.content)
 
     # Save assistant response
     st.session_state.messages.append({"role": "assistant", "content": response.content})
+
+
 
 # --- Debug Info ---
 if st.session_state.debug:
