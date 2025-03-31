@@ -13,6 +13,7 @@ certifi==2025.1.31
 charset-normalizer==3.4.1
 click==8.1.8
 comm==0.2.2
+cryptography==44.0.2
 dataclasses-json==0.6.7
 debugpy==1.8.13
 decorator==5.2.1
@@ -50,6 +51,7 @@ langchain-text-splitters==0.3.7
 langsmith==0.3.19
 MarkupSafe==3.0.2
 marshmallow==3.26.1
+matplotlib==3.10.1
 matplotlib-inline==0.1.7
 multidict==6.2.0
 mypy-extensions==1.0.0
@@ -88,6 +90,7 @@ regex==2024.11.6
 requests==2.32.3
 requests-toolbelt==1.0.0
 rpds-py==0.23.1
+scipy==1.15.2
 setuptools==75.8.2
 six==1.17.0
 smmap==5.0.2
