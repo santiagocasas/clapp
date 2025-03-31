@@ -93,8 +93,17 @@ with st.sidebar:
         index=["gpt-4o", "gpt-4o-mini", "o3-mini"].index(st.session_state.selected_model)
     )
 
-    st.write("Fast Mode:")
-    mode_is_fast = st.toggle("Turn off for more refined replies", value=True)
+    st.write("### Response Mode")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        mode_is_fast = st.toggle("Fast Mode", value=True)
+    with col2:
+        if mode_is_fast:
+            st.caption("✨ Quick responses with good quality (recommended for most uses)")
+        else:
+            st.caption("🎯 Detailed, more refined responses (may take longer)")
+    
+    st.markdown("---")  # Add a separator for better visual organization
 
     if user_password:
         # Recreate encryption key
@@ -220,8 +229,8 @@ def call_ai(context, user_input):
 
         try:
             grading_data = json.loads(grading_response.content)
-            #st.markdown(f"**Rating:** {grading_data['rating']}/10")
-            #st.markdown(f"**Feedback:** {grading_data['feedback']}")
+            st.markdown(f"**Rating:** {grading_data['rating']}/10")
+            st.markdown(f"**Feedback:** {grading_data['feedback']}")
 
             if grading_data['rating'] <= 8:
                 #st.warning("⚠️ Rating below threshold — attempting to improve the answer.")
