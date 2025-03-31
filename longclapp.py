@@ -20,6 +20,31 @@ from langchain_core.documents import Document
 
 from langchain.callbacks.base import BaseCallbackHandler
 
+# --- Helper Functions ---
+def save_encrypted_key(encrypted_key):
+    """Save encrypted key to file"""
+    try:
+        with open(".encrypted_api_key", "w") as f:
+            f.write(encrypted_key)
+        return True
+    except Exception as e:
+        return False
+
+def load_encrypted_key():
+    """Load encrypted key from file"""
+    try:
+        with open(".encrypted_api_key", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+def read_keys_from_file(file_path):
+    with open(file_path, 'r') as file:
+        return json.load(file)
+
+def read_prompt_from_file(path):
+    with open(path, 'r') as f:
+        return f.read()
 
 class StreamHandler(BaseCallbackHandler):
     def __init__(self, container):
@@ -43,15 +68,6 @@ with col2:
     st.image("images/classAI.png", width=500)
 
 # --- Load API keys and Assistant IDs from file ---
-def read_keys_from_file(file_path):
-    with open(file_path, 'r') as file:
-        return json.load(file)
-
-# --- Load system instructions from file ---
-def read_prompt_from_file(path):
-    with open(path, 'r') as f:
-        return f.read()
-
 keys = read_keys_from_file("keys-IDs.json")
 Classy_instuctions = read_prompt_from_file("prompts/class_instructions.txt")
 Rating_instuctions = read_prompt_from_file("prompts/rating_instructions.txt")
@@ -84,8 +100,67 @@ init_session()
 with st.sidebar:
     st.header("🔐 API & Assistants")
     api_key = st.text_input("OpenAI API Key", type="password")
+    user_password = st.text_input("Password to encrypt/decrypt API key", type="password")
+    
+    # When both API key and password are provided
+    if api_key and user_password:
+        # Create encryption key from password
+        key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
+        fernet = Fernet(key)
+        
+        # If this is a new API key, encrypt and save it
+        if "saved_api_key" not in st.session_state or api_key != st.session_state.saved_api_key:
+            try:
+                # Encrypt the API key
+                encrypted_key = fernet.encrypt(api_key.encode())
+                
+                # Save to session state and file
+                st.session_state.saved_api_key = api_key
+                st.session_state.encrypted_key = encrypted_key.decode()
+                
+                # Save to file
+                if save_encrypted_key(encrypted_key.decode()):
+                    st.success("API key encrypted and saved! ✅")
+                else:
+                    st.warning("API key encrypted but couldn't save to file! ⚠️")
+            except Exception as e:
+                st.error(f"Error saving API key: {str(e)}")
+    
+    # Try to load saved API key if password is provided
+    elif user_password and not api_key:
+        # Try to load from file first
+        encrypted_key = load_encrypted_key()
+        if encrypted_key:
+            try:
+                # Recreate encryption key
+                key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
+                fernet = Fernet(key)
+                
+                # Decrypt the saved key
+                decrypted_key = fernet.decrypt(encrypted_key.encode()).decode()
+                
+                # Set the API key
+                api_key = decrypted_key
+                st.session_state.saved_api_key = api_key
+                st.success("API key loaded successfully! 🔑")
+            except Exception as e:
+                st.error("Failed to decrypt API key. Wrong password? 🔒")
+        else:
+            st.warning("No saved API key found. Please enter your API key first. 🔑")
 
-    user_password = st.text_input("User Password", type="password")
+    # Add clear saved key button
+    if os.path.exists(".encrypted_api_key"):
+        if st.button("🗑️ Clear Saved API Key"):
+            try:
+                os.remove(".encrypted_api_key")
+                if "saved_api_key" in st.session_state:
+                    del st.session_state.saved_api_key
+                if "encrypted_key" in st.session_state:
+                    del st.session_state.encrypted_key
+                st.success("Saved API key cleared! 🗑️")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error clearing saved key: {str(e)}")
 
     st.session_state.selected_model = st.selectbox(
         "🧠 Choose LLM model",
@@ -105,26 +180,9 @@ with st.sidebar:
     
     st.markdown("---")  # Add a separator for better visual organization
 
-    if user_password:
-        # Recreate encryption key
-        key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
-        fernet = Fernet(key)
-
-        # Load the encrypted private key
-        with open("encrypted_pk.txt", "r") as f:
-            encrypted_pk = f.read()
-
-
-        try:
-            api_key = fernet.decrypt(encrypted_pk.encode()).decode()
-            
-        except Exception as e:
-            raise Exception("Failed to decrypt private key. Wrong password?") from e
-        
-
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
-
+        
         # First initialization without streaming
         st.session_state.llm = ChatOpenAI(
                 model_name=st.session_state.selected_model,
