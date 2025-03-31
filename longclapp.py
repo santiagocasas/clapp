@@ -74,7 +74,7 @@ def init_session():
     if "last_token_count" not in st.session_state:
         st.session_state.last_token_count = 0
     if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "gpt-4o"
+        st.session_state.selected_model = "gpt-4o-mini"
     if "greeted" not in st.session_state:
         st.session_state.greeted = False
 
@@ -89,8 +89,8 @@ with st.sidebar:
 
     st.session_state.selected_model = st.selectbox(
         "🧠 Choose LLM model",
-        options=["gpt-4o", "gpt-4o-mini", "o3-mini"],
-        index=["gpt-4o", "gpt-4o-mini", "o3-mini"].index(st.session_state.selected_model)
+        options=["gpt-4o-mini", "gpt-4o", "o3-mini"],
+        index=["gpt-4o-mini", "gpt-4o", "o3-mini"].index(st.session_state.selected_model)
     )
 
     st.write("### Response Mode")
@@ -150,7 +150,7 @@ with st.sidebar:
                     loader = PyPDFLoader(file_path)
                     docs = loader.load()
                     all_docs.extend(docs)
-                elif filename.endswith(('.txt', '.py')):  # Added .py extension
+                elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
                     # Handle text and Python files
                     with open(file_path, 'r', encoding='utf-8') as f:
                         text = f.read()
