@@ -1,0 +1,23 @@
+[
+    {
+        "model": "gpt-4o",
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "api_type": "openai",
+        "tags": ["gpt-4o"]
+    },
+    {
+        "model": "gpt-4o-mini",
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "api_type": "openai",
+        "tags": ["gpt-4o-mini"]
+    },
+    {
+        "model": "o3-mini",
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "api_type": "openai",
+        "tags": ["o3-mini"]
+    }
+] 
