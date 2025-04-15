@@ -8,7 +8,7 @@ import os
 import base64
 import getpass
 from cryptography.fernet import Fernet
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import OpenAIEmbeddings
