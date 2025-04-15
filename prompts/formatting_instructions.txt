@@ -79,4 +79,4 @@ Remember:
 - Do not check for installed packages
 - Do not install new packages
 - Do not make suggestions, focus on providing Python code
-- For multiple files/modules, provide code for each one separately 
+- For multiple files/modules, provide code for each one separately

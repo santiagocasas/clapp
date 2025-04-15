@@ -96,8 +96,9 @@ keys = read_keys_from_file("keys-IDs.json")
 # New prompts for the swarm
 Initial_Agent_Instructions = read_prompt_from_file("prompts/class_instructions.txt") # Reuse or adapt class_instructions
 Review_Agent_Instructions = read_prompt_from_file("prompts/review_instructions.txt") # Adapt rating_instructions
-Typo_Agent_Instructions = read_prompt_from_file("prompts/typo_instructions.txt")   # New prompt file
+#Typo_Agent_Instructions = read_prompt_from_file("prompts/typo_instructions.txt")   # New prompt file
 Formatting_Agent_Instructions = read_prompt_from_file("prompts/formatting_instructions.txt") # New prompt file
+Code_Execution_Agent_Instructions = read_prompt_from_file("prompts/codeexecutor_instructions.txt") # New prompt file
 
 # --- Initialize Session State ---
 def init_session():
@@ -119,6 +120,8 @@ def init_session():
         st.session_state.selected_model = "gpt-4o-mini"
     if "greeted" not in st.session_state:
         st.session_state.greeted = False
+    if "debug_messages" not in st.session_state:
+        st.session_state.debug_messages = []
 
 init_session()
 
@@ -217,6 +220,8 @@ with st.sidebar:
         )
 
         if st.session_state.vector_store is None:
+            embedding_status = st.empty()
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
             embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
             
             # Get all files from class-data directory
@@ -251,11 +256,12 @@ with st.sidebar:
             
             # Create vector store from all documents
             st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+            embedding_status.empty()  # Clear the loading message
 
         # Trigger welcome message once by requesting it from the assistant
         if not st.session_state.greeted:
             greeting = st.session_state.llm.invoke([
-                SystemMessage(content=Classy_instuctions),
+                SystemMessage(content=Initial_Agent_Instructions),
                 HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
             ])
             st.session_state.messages.append({"role": "assistant", "content": greeting.content})
@@ -298,55 +304,55 @@ def retrieve_context(question):
     docs = st.session_state.vector_store.similarity_search(question, k=4)
     return "\n\n".join([doc.page_content for doc in docs])
 
-def format_execution_results(execution_result, plot_buffer=None):
-    """Format the execution results in a more readable way using markdown."""
-    if not execution_result:
-        return "No code execution results to display."
+# def format_execution_results(execution_result, plot_buffer=None):
+#     """Format the execution results in a more readable way using markdown."""
+#     if not execution_result:
+#         return "No code execution results to display."
     
-    # Split the result into lines for better processing
-    lines = execution_result.split('\n')
-    formatted_result = "### Code Execution Results\n\n"
+#     # Split the result into lines for better processing
+#     lines = execution_result.split('\n')
+#     formatted_result = "### Code Execution Results\n\n"
     
-    # Track if we're in a code block
-    in_code_block = False
-    current_code_block = []
+#     # Track if we're in a code block
+#     in_code_block = False
+#     current_code_block = []
     
-    for line in lines:
-        # Check for code block markers
-        if line.startswith('```'):
-            if in_code_block:
-                # End of code block
-                formatted_result += "```python\n" + '\n'.join(current_code_block) + "\n```\n\n"
-                current_code_block = []
-                in_code_block = False
-            else:
-                # Start of code block
-                in_code_block = True
-        elif in_code_block:
-            # Inside code block
-            current_code_block.append(line)
-        else:
-            # Regular text
-            if line.strip():
-                if line.startswith('Error'):
-                    formatted_result += f"❌ **{line}**\n\n"
-                elif line.startswith('Warning'):
-                    formatted_result += f"⚠️ **{line}**\n\n"
-                elif line.startswith('Success'):
-                    formatted_result += f"✅ **{line}**\n\n"
-                else:
-                    formatted_result += f"{line}\n\n"
+#     for line in lines:
+#         # Check for code block markers
+#         if line.startswith('```'):
+#             if in_code_block:
+#                 # End of code block
+#                 formatted_result += "```python\n" + '\n'.join(current_code_block) + "\n```\n\n"
+#                 current_code_block = []
+#                 in_code_block = False
+#             else:
+#                 # Start of code block
+#                 in_code_block = True
+#         elif in_code_block:
+#             # Inside code block
+#             current_code_block.append(line)
+#         else:
+#             # Regular text
+#             if line.strip():
+#                 if line.startswith('Error'):
+#                     formatted_result += f"❌ **{line}**\n\n"
+#                 elif line.startswith('Warning'):
+#                     formatted_result += f"⚠️ **{line}**\n\n"
+#                 elif line.startswith('Success'):
+#                     formatted_result += f"✅ **{line}**\n\n"
+#                 else:
+#                     formatted_result += f"{line}\n\n"
     
-    # Handle any remaining code block
-    if current_code_block:
-        formatted_result += "```python\n" + '\n'.join(current_code_block) + "\n```\n\n"
+#     # Handle any remaining code block
+#     if current_code_block:
+#         formatted_result += "```python\n" + '\n'.join(current_code_block) + "\n```\n\n"
     
-    # Add plot if available
-    if plot_buffer:
-        formatted_result += "### Plot Output\n\n"
-        st.image(plot_buffer, use_column_width=True)
+#     # Add plot if available
+#     if plot_buffer:
+#         formatted_result += "### Plot Output\n\n"
+#         st.image(plot_buffer, use_column_width=True)
     
-    return formatted_result
+#     return formatted_result
 
 def clean_code_for_execution(code):
     """Remove plt.show() calls and add plt.savefig() for proper plot capture."""
@@ -394,12 +400,47 @@ def clean_code_for_execution(code):
 temp_dir = tempfile.TemporaryDirectory()
 
 class PlotAwareExecutor(LocalCommandLineCodeExecutor):
+    """
+    A specialized code executor that handles plotting and code execution with plot capture.
+    
+    This executor extends LocalCommandLineCodeExecutor to:
+    1. Handle matplotlib plots by saving them to memory instead of displaying them
+    2. Clean code for execution by removing plt.show() calls
+    3. Support various image formats (.png, .jpg, .jpeg, .gif, .pdf)
+    4. Provide access to generated plots through plot_buffer
+    
+    Attributes:
+        plot_buffer (io.BytesIO): Buffer containing the last generated plot image
+        supported_extensions (list): List of supported image file extensions
+    """
+    
     def __init__(self, **kwargs):
+        """
+        Initialize the PlotAwareExecutor.
+        
+        Args:
+            **kwargs: Additional arguments passed to LocalCommandLineCodeExecutor
+        """
         super().__init__(**kwargs)
         self.plot_buffer = None
 
     def execute_code(self, code: str):
-        plt.close("all")
+        """
+        Execute Python code and capture any generated plots.
+        
+        This method:
+        1. Extracts code from markdown code blocks if present
+        2. Cleans the code for execution (removes plt.show() calls)
+        3. Executes the code using the parent class
+        4. Captures any generated plots into memory
+        
+        Args:
+            code (str): Python code to execute, optionally wrapped in markdown code blocks
+            
+        Returns:
+            str: The output from code execution
+        """
+        self.supported_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.pdf']
 
         # Extract code from triple backticks if needed
         match = re.search(r"```(?:python)?\n(.*?)```", code, re.DOTALL)
@@ -410,18 +451,24 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         cleaned_code = clean_code_for_execution(code)
 
         if st.session_state.debug:
-            st.text(">>> FINAL EXECUTED CODE:\n" + cleaned_code)
+            st.session_state.debug_messages.append((">>Executed Code>>", cleaned_code))
 
         # Wrap as CodeBlock
         code_block = CodeBlock(language="python", code=cleaned_code)
         result = super().execute_code_blocks([code_block])
 
         # Capture plot
-        if os.path.exists("plot.png"):
-            with open("plot.png", "rb") as f:
-                buf = io.BytesIO(f.read())
-            self.plot_buffer = buf
-            os.remove("plot.png")
+        for ext in self.supported_extensions:
+            for file in os.listdir(self.work_dir):
+                if file.endswith(ext):
+                    file_path = os.path.join(self.work_dir, file)
+                    with open(file_path, "rb") as f:
+                        buf = io.BytesIO(f.read())
+                    self.plot_buffer = buf
+                    os.remove(file_path)
+                    break
+            if self.plot_buffer is not None:
+                break
         else:
             self.plot_buffer = None
 
@@ -485,101 +532,32 @@ review_agent = ConversableAgent(
     llm_config=review_config
 )
 
-typo_agent = ConversableAgent(
-    name="typo_agent",
-    system_message=f"""You are the typo and code correction agent. Your task is to:
-1. Fix any typos or grammatical errors
-2. Correct any code issues
-3. Ensure proper formatting
-4. Maintain the original meaning while improving clarity
-5. Verify plots are saved to disk (not using show())
-6. PRESERVE all code blocks exactly as they are unless there are actual errors
-7. If no changes are needed, keep the original code blocks unchanged
+# typo_agent = ConversableAgent(
+#     name="typo_agent",
+#     system_message=f"""You are the typo and code correction agent. Your task is to:
+# 1. Fix any typos or grammatical errors
+# 2. Correct any code issues
+# 3. Ensure proper formatting
+# 4. Maintain the original meaning while improving clarity
+# 5. Verify plots are saved to disk (not using show())
+# 6. PRESERVE all code blocks exactly as they are unless there are actual errors
+# 7. If no changes are needed, keep the original code blocks unchanged
 
-{Typo_Agent_Instructions}""",
-    human_input_mode="NEVER",
-    llm_config=typo_config
-)
+# # {Typo_Agent_Instructions}""",
+# #     human_input_mode="NEVER",
+# #     llm_config=typo_config
+# # )
 
 formatting_agent = ConversableAgent(
     name="formatting_agent",
-    system_message="""
-You are a code formatting assistant.
-Your job is to prepare Python code for automated execution.
-
-1. If the message contains code blocks (text between ```python and ```):
-   - Extract the code from the blocks
-   - If the code uses matplotlib:
-     - Remove all 'plt.show()' calls
-     - Add these lines at the end:
-       fig = plt.gcf()
-       fig.savefig("plot.png", dpi=300, bbox_inches='tight')
-       plt.close('all')
-   - Wrap the modified code back in ```python and ``` blocks
-   - Return the complete message with:
-     a) The original explanation text
-     b) The modified code blocks
-     c) A note about code execution: "💡 Note: This answer contains code. If you want to execute it, type 'execute!' in the chat."
-
-2. If the message does not contain code blocks:
-   - Format the text in a clear, professional manner
-   - Use proper markdown formatting
-   - Maintain readability and clarity
-
-3. Always return the complete message with any code blocks properly formatted and modified as needed.
-
-Example input:
-```
-Here's some code:
-```python
-import matplotlib.pyplot as plt
-plt.plot([1,2,3])
-plt.show()
-```
-```
-
-Example output:
-```
-Here's some code:
-```python
-import matplotlib.pyplot as plt
-plt.plot([1,2,3])
-fig = plt.gcf()
-fig.savefig("plot.png", dpi=300, bbox_inches='tight')
-plt.close('all')
-```
-
-💡 Note: This answer contains code. If you want to execute it, type 'execute!' in the chat.
-```
-""",
+    system_message="""{Formatting_Agent_Instructions}""",
     human_input_mode="NEVER",
     llm_config=formatting_config
 )
 
 code_executor = ConversableAgent(
     name="code_executor",
-    system_message="""You are the code execution agent. Your task is to:
-1. Extract any code blocks from the message (text between ```python and ```)
-2. Execute the extracted code and report the results
-3. If the code execution fails, provide error details
-4. If no code blocks are found, respond with "No code blocks found to execute"
-5. For matplotlib plots, ensure they are saved to disk instead of using .show()
-6. ALWAYS check for code blocks in the message
-7. If code blocks are found, execute them and report the results
-
-Example response format:
-```
-Code Execution Results:
-exitcode: 0 (execution succeeded)
-Code output: [output here]
-```
-
-If there are errors:
-```
-Code Execution Results:
-exitcode: 1 (execution failed)
-Error: [error details here]
-```""",
+    system_message="""{Code_Execution_Agent_Instructions}""",
     human_input_mode="NEVER",
     llm_config=code_execution_config,
     code_execution_config={"executor": executor},
@@ -588,7 +566,7 @@ Error: [error details here]
 
 def call_ai(context, user_input):
     if mode_is_fast:
-        messages = build_messages(context, user_input, Classy_instuctions)
+        messages = build_messages(context, user_input, Initial_Agent_Instructions)
         response = st.session_state.llm.invoke(messages)
         return Response(content=response.content)
     else:
@@ -607,7 +585,8 @@ def call_ai(context, user_input):
             summary_method="last_msg"
         )
         draft_answer = chat_result_1.summary
-        if st.session_state.debug: st.text(f"Initial Draft:\n{draft_answer}")
+        if st.session_state.debug:
+            st.session_state.debug_messages.append(("Initial Draft", draft_answer))
 
         # 2. Review Agent critiques the draft
         st.markdown("Reviewing draft...")
@@ -618,36 +597,32 @@ def call_ai(context, user_input):
             summary_method="last_msg"
         )
         review_feedback = chat_result_2.summary
-        if st.session_state.debug: st.text(f"Review Feedback:\n{review_feedback}")
+        if st.session_state.debug:
+            st.session_state.debug_messages.append(("Review Feedback", review_feedback))
 
-        # 3. Typo Agent corrects the draft
-        st.markdown("Checking for typos...")
-        chat_result_3 = typo_agent.initiate_chat(
-            recipient=typo_agent,
-            message=f"Original draft: {draft_answer}\n\nReview feedback: {review_feedback}",
-            max_turns=1,
-            summary_method="last_msg"
-        )
-        typo_corrected_answer = chat_result_3.summary
-        if st.session_state.debug: st.text(f"Typo-Corrected Answer:\n{typo_corrected_answer}")
+        # # 3. Typo Agent corrects the draft
+        # st.markdown("Checking for typos...")
+        # chat_result_3 = typo_agent.initiate_chat(
+        #     recipient=typo_agent,
+        #     message=f"Original draft: {draft_answer}\n\nReview feedback: {review_feedback}",
+        #     max_turns=1,
+        #     summary_method="last_msg"
+        # )
+        # typo_corrected_answer = chat_result_3.summary
+        # if st.session_state.debug: st.text(f"Typo-Corrected Answer:\n{typo_corrected_answer}")
 
         # 4. Formatting Agent formats the final answer
         st.markdown("Formatting final answer...")
         chat_result_4 = formatting_agent.initiate_chat(
             recipient=formatting_agent,
             message=f"""Please format this answer while preserving any code blocks:
-
-{typo_corrected_answer}
-
-Remember to:
-1. Keep all code blocks exactly as they are
-2. Add proper matplotlib save commands if needed
-3. Format the text professionally""",
+                {draft_answer}""",
             max_turns=1,
             summary_method="last_msg"
         )
         formatted_answer = chat_result_4.summary
-        if st.session_state.debug: st.text(f"Formatted Answer:\n{formatted_answer}")
+        if st.session_state.debug:
+            st.session_state.debug_messages.append(("Formatted Answer", formatted_answer))
 
         # Check if the answer contains code
         if "```python" in formatted_answer:
@@ -722,9 +697,6 @@ if user_input:
                 else:
                     st.warning("No plot was generated.")
                 
-                formatted_execution_results = format_execution_results(execution_output, executor.plot_buffer)
-                st.markdown(formatted_execution_results)
-
                 # Check for errors and iterate if needed
                 max_iterations = 3  # Maximum number of iterations to prevent infinite loops
                 current_iteration = 0
@@ -733,15 +705,16 @@ if user_input:
                 while has_errors and current_iteration < max_iterations:
                     current_iteration += 1
                     st.markdown(f"Fixing errors (attempt {current_iteration}/{max_iterations})...")
+                    st.error(f"Previous error: {execution_output}")  # Show the actual error message
 
                     # Get new review with error information
                     review_message = f"""
-Previous answer had errors during execution:
-{execution_output}
+                    Previous answer had errors during execution:
+                    {execution_output}
 
-Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
-{last_assistant_message}
-"""
+                    Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+                    {last_assistant_message}
+                    """
                     chat_result_2 = review_agent.initiate_chat(
                         recipient=review_agent,
                         message=review_message,
@@ -749,82 +722,86 @@ Please review and suggest fixes for this answer. IMPORTANT: Preserve all code bl
                         summary_method="last_msg"
                     )
                     review_feedback = chat_result_2.summary
+                    if st.session_state.debug:
+                        st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
 
                     # Get corrected version
-                    chat_result_3 = typo_agent.initiate_chat(
-                        recipient=typo_agent,
+                    chat_result_3 = initial_agent.initiate_chat(
+                        recipient=initial_agent,
                         message=f"""Original answer: {last_assistant_message}
-
-Review feedback with error fixes: {review_feedback}
-
-IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
+                        Review feedback with error fixes: {review_feedback}
+                        IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
                         max_turns=1,
                         summary_method="last_msg"
                     )
-                    typo_corrected_answer = chat_result_3.summary
+                    corrected_answer = chat_result_3.summary
+                    if st.session_state.debug:
+                        st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
 
                     # Format the corrected answer
                     chat_result_4 = formatting_agent.initiate_chat(
                         recipient=formatting_agent,
                         message=f"""Please format this corrected answer while preserving all code blocks:
-
-{typo_corrected_answer}
-
-Remember to:
-1. Keep all code blocks exactly as they are
-2. If the code uses matplotlib, add the save commands at the end
-3. Format the text professionally""",
+                        {corrected_answer}
+                        """,
                         max_turns=1,
                         summary_method="last_msg"
                     )
                     formatted_answer = chat_result_4.summary
+                    if st.session_state.debug:
+                        st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
 
                     # Execute the corrected code
                     st.info("🚀 Executing corrected code...")
                     execution_output = executor.execute_code(formatted_answer)
+                    if st.session_state.debug:
+                        st.session_state.debug_messages.append(("Execution Output", execution_output))
                     
                     # Display new execution results
                     st.markdown(f"### Execution Results (Attempt {current_iteration})")
-                    
-                    # Display the plot if available
                     if executor.plot_buffer:
                         st.markdown("### Plot Output")
-                        st.image(executor.plot_buffer, use_column_width=True)
+                        st.image(executor.plot_buffer, use_container_width=True)
                     else:
                         st.warning("No plot was generated.")
                     
-                    formatted_execution_results = format_execution_results(execution_output, executor.plot_buffer)
-                    st.markdown(formatted_execution_results)
-
                     # Update last_assistant_message with the formatted answer for next iteration
                     last_assistant_message = formatted_answer
                     has_errors = "Error in Class" in execution_output
 
                 if has_errors:
                     st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
-                    
-                    # Create a response object with the execution results
-                    response = Response(content=formatted_execution_results)
+                    st.markdown(f"> ❌ Last execution message:\n{execution_output}")
+                    response = Response(content=f"Execution completed with errors:\n{execution_output}")
                 else:
-                    st.markdown("> ❌ No code found to execute in the previous messages.")
-                    response = Response(content="No code found to execute.")
+                    st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
+                    response = Response(content=f"Execution completed successfully:\n{execution_output}")
+            else:
+                response = Response(content="No code found to execute in the previous messages.")
         else:
             response = call_ai(context, user_input)
+            if not mode_is_fast:
+                st.markdown(response.content)
 
         st.session_state.memory.add_ai_message(response.content)
-
-        # Save assistant response
         st.session_state.messages.append({"role": "assistant", "content": response.content})
-
-        if not mode_is_fast:
-            st.markdown(response.content)
 
 # --- Debug Info ---
 if st.session_state.debug:
+    with st.sidebar.expander("🛠️ Debug Information", expanded=True):
+        # Create a container for debug messages
+        debug_container = st.container()
+        with debug_container:
+            st.markdown("### Debug Messages")
+            
+            # Display all debug messages in a scrollable container
+            for title, message in st.session_state.debug_messages:
+                st.markdown(f"### {title}")
+                st.markdown(message)
+                st.markdown("---")
+    
     with st.sidebar.expander("🛠️ Context Used"):
         if "context" in locals():
             st.markdown(context)
         else:
             st.markdown("No context retrieved yet.")
-    with st.sidebar.expander("📋 System Prompt"):
-        st.markdown(Classy_instuctions)
