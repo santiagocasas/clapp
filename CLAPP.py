@@ -424,18 +424,28 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         result = super().execute_code_blocks([code_block])
 
         # Capture plot
+        if st.session_state.debug:
+            st.session_state.debug_messages.append(("Plot Capture", f"Looking for plot files in {self.work_dir}"))
+            st.session_state.debug_messages.append(("Plot Capture", f"Files found: {os.listdir(self.work_dir)}"))
+        
         for ext in self.supported_extensions:
             for file in os.listdir(self.work_dir):
                 if file.endswith(ext):
                     file_path = os.path.join(self.work_dir, file)
+                    if st.session_state.debug:
+                        st.session_state.debug_messages.append(("Plot Capture", f"Found plot file: {file_path}"))
                     with open(file_path, "rb") as f:
                         buf = io.BytesIO(f.read())
+                        if st.session_state.debug:
+                            st.session_state.debug_messages.append(("Plot Capture", f"Buffer size: {buf.getbuffer().nbytes} bytes"))
                     self.plot_buffer = buf
                     os.remove(file_path)
                     break
             if self.plot_buffer is not None:
                 break
         else:
+            if st.session_state.debug:
+                st.session_state.debug_messages.append(("Plot Capture", "No plot files found"))
             self.plot_buffer = None
 
         return result.output
@@ -663,9 +673,12 @@ if user_input:
                 st.markdown("### Execution Results")
                 
                 # Display the plot if available
-                if executor.plot_buffer:
-                    st.markdown("### Plot Output")
-                    st.image(executor.plot_buffer, use_container_width=True)
+                if executor.plot_buffer and executor.plot_buffer.getbuffer().nbytes > 0:
+                    try:
+                        st.markdown("### Plot Output")
+                        st.image(executor.plot_buffer, use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Could not display plot: {str(e)}")
                 else:
                     st.warning("No plot was generated.")
                 
@@ -738,9 +751,12 @@ if user_input:
                     
                     # Display new execution results
                     st.markdown(f"### Execution Results (Attempt {current_iteration})")
-                    if executor.plot_buffer:
-                        st.markdown("### Plot Output")
-                        st.image(executor.plot_buffer, use_container_width=True)
+                    if executor.plot_buffer and executor.plot_buffer.getbuffer().nbytes > 0:
+                        try:
+                            st.markdown("### Plot Output")
+                            st.image(executor.plot_buffer, use_container_width=True)
+                        except Exception as e:
+                            st.warning(f"Could not display plot: {str(e)}")
                     else:
                         st.warning("No plot was generated.")
                     
