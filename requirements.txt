@@ -77,11 +77,11 @@ jupyterlab_pygments==0.3.0
 jupyterlab_server==2.27.3
 jupyterlab_widgets==3.0.13
 kiwisolver==1.4.8
-langchain==0.3.21
-langchain-community==0.3.20
-langchain-core==0.3.49
-langchain-openai==0.3.11
-langchain-text-splitters==0.3.7
+langchain
+langchain-community
+langchain-core
+langchain-openai
+langchain-text-splitters
 langsmith==0.3.19
 MarkupSafe==3.0.2
 marshmallow==3.26.1
@@ -115,7 +115,6 @@ psutil==7.0.0
 ptyprocess==0.7.0
 pure_eval==0.2.3
 pyarrow==19.0.1
-pyautogen==0.8.6
 pycparser==2.22
 pydantic==2.10.6
 pydantic-settings==2.8.1
