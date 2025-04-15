@@ -88,7 +88,7 @@ st.set_page_config(
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.image("images/classAI.png", width=500)
+    st.image("images/CLAPP.png", width=500)
 
 # --- Load API keys and Assistant IDs from file ---
 keys = read_keys_from_file("keys-IDs.json")
