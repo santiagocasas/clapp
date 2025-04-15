@@ -13,7 +13,6 @@ async-lru==2.0.5
 async-timeout==4.0.3
 asyncer==0.0.8
 attrs==25.3.0
-autogen==0.8.6
 babel==2.17.0
 beautifulsoup4==4.13.3
 bleach==6.2.0
