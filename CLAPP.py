@@ -197,6 +197,18 @@ with st.sidebar:
         index=["gpt-4o-mini", "gpt-4o", "o3-mini"].index(st.session_state.selected_model)
     )
 
+    # Check if model has changed
+    if "previous_model" not in st.session_state:
+        st.session_state.previous_model = st.session_state.selected_model
+    elif st.session_state.previous_model != st.session_state.selected_model:
+        # Reset relevant state variables when model changes
+        st.session_state.vector_store = None
+        st.session_state.greeted = False
+        st.session_state.messages = []
+        st.session_state.memory = ChatMessageHistory()
+        st.session_state.previous_model = st.session_state.selected_model
+        st.info("Model changed! Please initialize again with the new model.")
+
     st.write("### Response Mode")
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -212,60 +224,63 @@ with st.sidebar:
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
         
-        # First initialization without streaming
-        st.session_state.llm = ChatOpenAI(
-                model_name=st.session_state.selected_model,
-                openai_api_key=api_key,
-                temperature=1.0
-        )
+        # Initialize only after model is selected
+        if st.button("🚀 Initialize with Selected Model"):
+            # First initialization without streaming
+            st.session_state.llm = ChatOpenAI(
+                    model_name=st.session_state.selected_model,
+                    openai_api_key=api_key,
+                    temperature=1.0
+            )
 
-        if st.session_state.vector_store is None:
-            embedding_status = st.empty()
-            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-            embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-            
-            # Get all files from class-data directory
-            all_docs = []
-            for filename in os.listdir("./class-data"):
-                file_path = os.path.join("./class-data", filename)
+            if st.session_state.vector_store is None:
+                embedding_status = st.empty()
+                embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+                embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
                 
-                if filename.endswith('.pdf'):
-                    # Handle PDF files
-                    loader = PyPDFLoader(file_path)
-                    docs = loader.load()
-                    all_docs.extend(docs)
-                elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
-                    # Handle text and Python files
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        text = f.read()
-                        # Create a document with metadata
-                        all_docs.append(Document(
-                            page_content=text,
-                            metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
-                        ))
+                # Get all files from class-data directory
+                all_docs = []
+                for filename in os.listdir("./class-data"):
+                    file_path = os.path.join("./class-data", filename)
+                    
+                    if filename.endswith('.pdf'):
+                        # Handle PDF files
+                        loader = PyPDFLoader(file_path)
+                        docs = loader.load()
+                        all_docs.extend(docs)
+                    elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
+                        # Handle text and Python files
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            text = f.read()
+                            # Create a document with metadata
+                            all_docs.append(Document(
+                                page_content=text,
+                                metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
+                            ))
 
-            # Split and process all documents
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            def sanitize(documents):
-                for doc in documents:
-                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                return documents
+                # Split and process all documents
+                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                def sanitize(documents):
+                    for doc in documents:
+                        doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                    return documents
+                    
+                splits = text_splitter.split_documents(all_docs)
+                splits = sanitize(splits)
                 
-            splits = text_splitter.split_documents(all_docs)
-            splits = sanitize(splits)
-            
-            # Create vector store from all documents
-            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-            embedding_status.empty()  # Clear the loading message
+                # Create vector store from all documents
+                st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+                embedding_status.empty()  # Clear the loading message
 
-        # Trigger welcome message once by requesting it from the assistant
-        if not st.session_state.greeted:
-            greeting = st.session_state.llm.invoke([
-                SystemMessage(content=Initial_Agent_Instructions),
-                HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
-            ])
-            st.session_state.messages.append({"role": "assistant", "content": greeting.content})
-            st.session_state.greeted = True
+            # Trigger welcome message once by requesting it from the assistant
+            if not st.session_state.greeted:
+                greeting = st.session_state.llm.invoke([
+                    SystemMessage(content=Initial_Agent_Instructions),
+                    HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
+                ])
+                st.session_state.messages.append({"role": "assistant", "content": greeting.content})
+                st.session_state.greeted = True
+            st.rerun()  # Refresh the page to show the initialized state
 
     st.session_state.debug = st.checkbox("🔍 Show Debug Info")
     if st.button("🗑️ Reset Chat"):
@@ -304,55 +319,6 @@ def retrieve_context(question):
     docs = st.session_state.vector_store.similarity_search(question, k=4)
     return "\n\n".join([doc.page_content for doc in docs])
 
-# def format_execution_results(execution_result, plot_buffer=None):
-#     """Format the execution results in a more readable way using markdown."""
-#     if not execution_result:
-#         return "No code execution results to display."
-    
-#     # Split the result into lines for better processing
-#     lines = execution_result.split('\n')
-#     formatted_result = "### Code Execution Results\n\n"
-    
-#     # Track if we're in a code block
-#     in_code_block = False
-#     current_code_block = []
-    
-#     for line in lines:
-#         # Check for code block markers
-#         if line.startswith('```'):
-#             if in_code_block:
-#                 # End of code block
-#                 formatted_result += "```python\n" + '\n'.join(current_code_block) + "\n```\n\n"
-#                 current_code_block = []
-#                 in_code_block = False
-#             else:
-#                 # Start of code block
-#                 in_code_block = True
-#         elif in_code_block:
-#             # Inside code block
-#             current_code_block.append(line)
-#         else:
-#             # Regular text
-#             if line.strip():
-#                 if line.startswith('Error'):
-#                     formatted_result += f"❌ **{line}**\n\n"
-#                 elif line.startswith('Warning'):
-#                     formatted_result += f"⚠️ **{line}**\n\n"
-#                 elif line.startswith('Success'):
-#                     formatted_result += f"✅ **{line}**\n\n"
-#                 else:
-#                     formatted_result += f"{line}\n\n"
-    
-#     # Handle any remaining code block
-#     if current_code_block:
-#         formatted_result += "```python\n" + '\n'.join(current_code_block) + "\n```\n\n"
-    
-#     # Add plot if available
-#     if plot_buffer:
-#         formatted_result += "### Plot Output\n\n"
-#         st.image(plot_buffer, use_column_width=True)
-    
-#     return formatted_result
 
 def clean_code_for_execution(code):
     """Remove plt.show() calls and add plt.savefig() for proper plot capture."""
@@ -685,15 +651,21 @@ if user_input:
             if last_assistant_message:
                 st.markdown("Executing code...")
                 st.info("🚀 Executing cleaned code...")
+                chat_result = code_executor.initiate_chat(
+                    recipient=code_executor,
+                    message=f"Please execute this code:\n{last_assistant_message}",
+                    max_turns=1,
+                    summary_method="last_msg"
+                )
+                #execution_output = chat_result.summary
                 execution_output = executor.execute_code(last_assistant_message)
-                
                 # Display execution results
                 st.markdown("### Execution Results")
                 
                 # Display the plot if available
                 if executor.plot_buffer:
                     st.markdown("### Plot Output")
-                    st.image(executor.plot_buffer, use_column_width=True)
+                    st.image(executor.plot_buffer, use_container_width=True)
                 else:
                     st.warning("No plot was generated.")
                 
@@ -753,6 +725,13 @@ if user_input:
 
                     # Execute the corrected code
                     st.info("🚀 Executing corrected code...")
+                    chat_result = code_executor.initiate_chat(
+                        recipient=code_executor,
+                        message=f"Please execute this corrected code:\n{formatted_answer}",
+                        max_turns=1,
+                        summary_method="last_msg"
+                    )
+                    #execution_output = chat_result.summary
                     execution_output = executor.execute_code(formatted_answer)
                     if st.session_state.debug:
                         st.session_state.debug_messages.append(("Execution Output", execution_output))
