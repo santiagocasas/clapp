@@ -13,6 +13,7 @@ async-lru==2.0.5
 async-timeout==4.0.3
 asyncer==0.0.8
 attrs==25.3.0
+autogen==0.8.6
 babel==2.17.0
 beautifulsoup4==4.13.3
 bleach==6.2.0
@@ -21,7 +22,6 @@ cachetools==5.5.2
 certifi==2025.1.31
 cffi==1.17.1
 charset-normalizer==3.4.1
-classy==3.3.0.0
 click==8.1.8
 comm==0.2.2
 contourpy==1.3.1
@@ -65,11 +65,11 @@ jsonpointer==3.0.0
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
 jupyter==1.1.1
-jupyter_client==8.6.3
 jupyter-console==6.6.3
-jupyter_core==5.7.2
 jupyter-events==0.12.0
 jupyter-lsp==2.2.5
+jupyter_client==8.6.3
+jupyter_core==5.7.2
 jupyter_server==2.15.0
 jupyter_server_terminals==0.5.3
 jupyterlab==4.3.6
@@ -106,7 +106,6 @@ pandocfilters==1.5.1
 parso==0.8.4
 pexpect==4.9.0
 pillow==11.1.0
-pip==25.0.1
 platformdirs==4.3.7
 prometheus_client==0.21.1
 prompt_toolkit==3.0.50
@@ -116,11 +115,11 @@ psutil==7.0.0
 ptyprocess==0.7.0
 pure_eval==0.2.3
 pyarrow==19.0.1
-pyautogen==0.8.5
+pyautogen==0.8.6
 pycparser==2.22
 pydantic==2.10.6
-pydantic_core==2.27.2
 pydantic-settings==2.8.1
+pydantic_core==2.27.2
 pydeck==0.9.1
 Pygments==2.19.1
 pyparsing==3.2.3
@@ -140,7 +139,6 @@ rfc3986-validator==0.1.1
 rpds-py==0.23.1
 scipy==1.15.2
 Send2Trash==1.8.3
-setuptools==78.1.0
 sgmllib3k==1.0.0
 six==1.17.0
 smmap==5.0.2
@@ -161,8 +159,8 @@ tornado==6.4.2
 tqdm==4.67.1
 traitlets==5.14.3
 types-python-dateutil==2.9.0.20241206
-typing_extensions==4.13.1
 typing-inspect==0.9.0
+typing_extensions==4.13.1
 tzdata==2025.2
 uri-template==1.3.0
 urllib3==2.3.0
@@ -172,7 +170,6 @@ wcwidth==0.2.13
 webcolors==24.11.1
 webencodings==0.5.1
 websocket-client==1.8.0
-wheel==0.45.1
 widgetsnbextension==4.0.13
 yarl==1.18.3
 zstandard==0.23.0

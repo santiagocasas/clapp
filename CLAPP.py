@@ -672,7 +672,7 @@ if user_input:
                 # Check for errors and iterate if needed
                 max_iterations = 3  # Maximum number of iterations to prevent infinite loops
                 current_iteration = 0
-                has_errors = "Error in Class" in execution_output
+                has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
 
                 while has_errors and current_iteration < max_iterations:
                     current_iteration += 1
@@ -746,15 +746,21 @@ if user_input:
                     
                     # Update last_assistant_message with the formatted answer for next iteration
                     last_assistant_message = formatted_answer
-                    has_errors = "Error in Class" in execution_output
+                    has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
 
                 if has_errors:
                     st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
                     st.markdown(f"> ❌ Last execution message:\n{execution_output}")
                     response = Response(content=f"Execution completed with errors:\n{execution_output}")
                 else:
-                    st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
-                    response = Response(content=f"Execution completed successfully:\n{execution_output}")
+                    # Check for common error indicators in the output
+                    if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
+                        st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
+                        st.markdown(f"> ❌ Execution message:\n{execution_output}")
+                        response = Response(content=f"Execution completed with errors:\n{execution_output}")
+                    else:
+                        st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
+                        response = Response(content=f"Execution completed successfully:\n{execution_output}")
             else:
                 response = Response(content="No code found to execute in the previous messages.")
         else:
