@@ -7,8 +7,8 @@ name = "clapp-project" # You might want to change this to a more specific name
 version = "0.1.0"
 description = "A Streamlit application using LangChain and CLASS."
 readme = "README.md"
-requires-python = ">=3.8" # Specify your minimum Python version
-license = {text = "MIT"} # Optional: Choose an appropriate license
+requires-python = ">=3.10" # Specify your minimum Python version
+license = "MIT" # Optional: Choose an appropriate license
 # authors = [ # Optional: Add author information
 #   { name="Your Name", email="your.email@example.com" },
 # ]
@@ -29,10 +29,10 @@ license = {text = "MIT"} # Optional: Choose an appropriate license
 #     "Topic :: Scientific/Engineering :: Astronomy",
 #     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 # ]
-
 dependencies = [
     "streamlit",
     "cryptography",
+    "classy==3.3.0",
     "langchain-openai",
     "langchain-core",
     "langchain-community", # Provides FAISS, PyPDFLoader etc.
@@ -46,3 +46,6 @@ dependencies = [
     "faiss-cpu", # Required by langchain-community for FAISS
     "pypdf", # Required by langchain-community for PyPDFLoader
 ]
+
+[tool.setuptools]
+py-modules = ["CLAPP"]
