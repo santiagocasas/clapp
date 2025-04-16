@@ -381,7 +381,7 @@ def clean_code_for_execution(code):
     return '\n'.join(cleaned_lines)
 
 # Set up code execution environment
-temp_dir = tempfile.TemporaryDirectory()
+#temp_dir = tempfile.TemporaryDirectory()
 
 class PlotAwareExecutor(LocalCommandLineCodeExecutor):
     """
@@ -469,8 +469,9 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         return result.output
 
 executor = PlotAwareExecutor(
-    timeout=10,
-    work_dir=temp_dir.name,
+    timeout=10
+    #,
+    #work_dir=temp_dir.name,
 )
 
 # Global agent configurations
