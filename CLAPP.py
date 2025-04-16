@@ -123,7 +123,25 @@ def init_session():
     if "debug_messages" not in st.session_state:
         st.session_state.debug_messages = []
 
+if st.sidebar.checkbox("Run environment diagnostics"):
+    import sys
+    st.code("\n".join(sys.path), language="bash")
+    
+    try:
+        from classy import Class
+        st.success("✅ classy is available")
+    except Exception as e:
+        st.error(f"❌ classy import failed: {e}")
+
+    try:
+        import matplotlib
+        st.success(f"✅ matplotlib version: {matplotlib.__version__}")
+    except Exception as e:
+        st.error(f"❌ matplotlib import failed: {e}")
+
 init_session()
+
+
 
 # --- Sidebar Configuration ---
 with st.sidebar:
