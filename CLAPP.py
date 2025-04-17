@@ -350,6 +350,23 @@ def clean_code_for_execution(code):
     in_code_block = False
     has_plotting = False
     
+    # Add plot configuration at the start if we find any plotting commands
+    for line in lines:
+        if any(plot_cmd in line for plot_cmd in ['plt.plot', 'plt.scatter', 'plt.bar', 'plt.hist', 'plt.imshow', 'plt.figure', 'plt.subplot']):
+            has_plotting = True
+            break
+    
+    if has_plotting:
+        cleaned_lines.extend([
+            "import matplotlib.pyplot as plt",
+            "plt.rcParams['figure.figsize'] = [8, 6]  # Set figure size",
+            "plt.rcParams['figure.dpi'] = 72  # Set lower DPI for smaller file size",
+            "plt.rcParams['savefig.dpi'] = 72  # Set save DPI",
+            "plt.rcParams['savefig.bbox'] = 'tight'  # Tight layout",
+            "plt.rcParams['savefig.pad_inches'] = 0.1  # Minimal padding",
+            ""
+        ])
+    
     for line in lines:
         # Check for code block markers
         if line.startswith('```'):
@@ -357,7 +374,7 @@ def clean_code_for_execution(code):
                 # End of code block, add savefig if needed
                 if has_plotting:
                     cleaned_lines.append("fig = plt.gcf()")
-                    cleaned_lines.append("fig.savefig('plot.png', dpi=300, bbox_inches='tight')")
+                    cleaned_lines.append("fig.savefig('plot.png', dpi=72, bbox_inches='tight', pad_inches=0.1)")
                     cleaned_lines.append("plt.close('all')")
                 in_code_block = False
                 has_plotting = False
@@ -452,16 +469,30 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
 
         # Execute the script using the system Python interpreter
         try:
-            result = subprocess.run(
+            # Use Popen instead of run to handle large outputs
+            process = subprocess.Popen(
                 [sys.executable, script_path],
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 cwd=self.work_dir,
-                timeout=10
+                text=True,
+                bufsize=1  # Line buffered
             )
-            output = result.stdout + result.stderr
-        except subprocess.TimeoutExpired:
-            output = "Execution timed out after 10 seconds"
+            
+            # Set a timeout
+            try:
+                stdout, stderr = process.communicate(timeout=10)
+                output = stdout + stderr
+                
+                # Limit output size to prevent buffer overflow
+                max_output_size = 10000  # 10KB
+                if len(output) > max_output_size:
+                    output = output[:max_output_size] + "\n... (output truncated due to size)"
+                
+            except subprocess.TimeoutExpired:
+                process.kill()
+                output = "Execution timed out after 10 seconds"
+                
         except Exception as e:
             output = f"Error executing script: {str(e)}"
 
@@ -705,12 +736,12 @@ if user_input:
             if last_assistant_message:
                 st.markdown("Executing code...")
                 st.info("🚀 Executing cleaned code...")
-                chat_result = code_executor.initiate_chat(
-                    recipient=code_executor,
-                    message=f"Please execute this code:\n{last_assistant_message}",
-                    max_turns=1,
-                    summary_method="last_msg"
-                )
+                #chat_result = code_executor.initiate_chat(
+                #    recipient=code_executor,
+                #    message=f"Please execute this code:\n{last_assistant_message}",
+                #    max_turns=1,
+                #    summary_method="last_msg"
+                #)
                 #execution_output = chat_result.summary
                 execution_output = executor.execute_code(last_assistant_message)
                 # Display execution results
@@ -782,12 +813,12 @@ if user_input:
 
                     # Execute the corrected code
                     st.info("🚀 Executing corrected code...")
-                    chat_result = code_executor.initiate_chat(
-                        recipient=code_executor,
-                        message=f"Please execute this corrected code:\n{formatted_answer}",
-                        max_turns=1,
-                        summary_method="last_msg"
-                    )
+                    #chat_result = code_executor.initiate_chat(
+                    #    recipient=code_executor,
+                    #    message=f"Please execute this corrected code:\n{formatted_answer}",
+                    #    max_turns=1,
+                    #    summary_method="last_msg"
+                    #)
                     #execution_output = chat_result.summary
                     execution_output = executor.execute_code(formatted_answer)
                     if st.session_state.debug:
