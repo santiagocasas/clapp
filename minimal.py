@@ -53,41 +53,24 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         # 2) Remove any plt.show() calls (we capture the figure ourselves)
         cleaned = re.sub(r"\bplt\.show\(\s*\)", "", cleaned)
 
-        # 3) Capture stdout and stderr while executing
+         # start a fresh figure
+        fig = plt.figure()
+
+        # run user code
         with self._capture_output() as (out_buf, err_buf):
             try:
-                # Execute in a fresh global namespace exposing only plt
-                exec_globals = {"__name__": "__main__", "plt": plt}
-                exec(cleaned, exec_globals)
+                exec(cleaned, {"__name__":"__main__", "plt":plt})
             except Exception:
-                # Print full traceback into stderr buffer
-                import traceback
-                traceback.print_exc(file=sys.stderr)
+                import traceback; traceback.print_exc(file=sys.stderr)
 
-        # 4) Gather text output
-        stdout_text = out_buf.getvalue()
-        stderr_text = err_buf.getvalue()
-        full_output = ""
-        if stdout_text:
-            full_output += f"STDOUT:\n{stdout_text}"
-        if stderr_text:
-            full_output += f"\nSTDERR:\n{stderr_text}"
+        # collect text output
+        text = out_buf.getvalue() + err_buf.getvalue()
 
-        # 5) Capture the current Matplotlib figure into PNG bytes
-        fig = plt.gcf()
-        img_buf = None
-        try:
-            buf = io.BytesIO()
-            fig.savefig(buf, format="png")
-            buf.seek(0)
-            img_buf = buf
-        except Exception:
-            img_buf = None
+        # if nothing got drawn, fig.get_axes() will be empty
+        drawn = bool(fig.get_axes())
 
-        # 6) Clear the figure so next run starts fresh
-        plt.clf()
-
-        return full_output, img_buf
+        # **don’t clear it here**—return the fig object
+        return text, fig if drawn else None
 
     def __del__(self):
         # Cleanup the temporary directory
@@ -114,14 +97,12 @@ print("Plotted a sine wave!")
 )
 
 if st.button("Run Code"):
-    output_text, img_buf = executor.execute_code(code)
-
-    st.subheader("Execution Output")
+    output_text, fig = executor.execute_code(code)
     st.text(output_text or "— no output —")
 
-    if img_buf:
+    if fig:
         st.subheader("Generated Plot")
-        # Display the PNG directly
-        st.image(img_buf.getvalue(), use_column_width=True)
+        st.pyplot(fig)
+        plt.close(fig)  # clean up now that Streamlit has it
     else:
         st.info("No plot was generated.")
