@@ -33,6 +33,8 @@ import matplotlib.pyplot as plt
 import io
 from PIL import Image
 import re
+import subprocess
+import sys
 
 # --- Helper Functions ---
 def save_encrypted_key(encrypted_key):
@@ -407,6 +409,8 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         """
         super().__init__(**kwargs)
         self.plot_buffer = None
+        self.work_dir = tempfile.mkdtemp()
+        self.supported_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.pdf']
 
     def execute_code(self, code: str):
         """
@@ -415,7 +419,7 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         This method:
         1. Extracts code from markdown code blocks if present
         2. Cleans the code for execution (removes plt.show() calls)
-        3. Executes the code using the parent class
+        3. Executes the code using the system Python interpreter
         4. Captures any generated plots into memory
         
         Args:
@@ -424,8 +428,6 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         Returns:
             str: The output from code execution
         """
-        self.supported_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.pdf']
-
         # Extract code from triple backticks if needed
         match = re.search(r"```(?:python)?\n(.*?)```", code, re.DOTALL)
         if match:
@@ -437,9 +439,25 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         if st.session_state.debug:
             st.session_state.debug_messages.append((">>Executed Code>>", cleaned_code))
 
-        # Wrap as CodeBlock
-        code_block = CodeBlock(language="python", code=cleaned_code)
-        result = super().execute_code_blocks([code_block])
+        # Write the code to a temporary script
+        script_path = os.path.join(self.work_dir, "script.py")
+        with open(script_path, "w") as f:
+            f.write(cleaned_code)
+
+        # Execute the script using the system Python interpreter
+        try:
+            result = subprocess.run(
+                [sys.executable, script_path],
+                capture_output=True,
+                text=True,
+                cwd=self.work_dir,
+                timeout=10
+            )
+            output = result.stdout + result.stderr
+        except subprocess.TimeoutExpired:
+            output = "Execution timed out after 10 seconds"
+        except Exception as e:
+            output = f"Error executing script: {str(e)}"
 
         # Capture plot
         if st.session_state.debug:
@@ -466,13 +484,17 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
                 st.session_state.debug_messages.append(("Plot Capture", "No plot files found"))
             self.plot_buffer = None
 
-        return result.output
+        return output
 
-executor = PlotAwareExecutor(
-    timeout=10
-    #,
-    #work_dir=temp_dir.name,
-)
+    def __del__(self):
+        """Clean up temporary directory when the executor is destroyed"""
+        try:
+            import shutil
+            shutil.rmtree(self.work_dir)
+        except:
+            pass
+
+executor = PlotAwareExecutor(timeout=10)
 
 # Global agent configurations
 initial_config = LLMConfig(
