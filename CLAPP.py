@@ -35,6 +35,7 @@ from PIL import Image
 import re
 import subprocess
 import sys
+from typing import Tuple
 
 # --- Helper Functions ---
 def save_encrypted_key(encrypted_key):
@@ -140,6 +141,7 @@ if st.sidebar.checkbox("Run environment diagnostics"):
         st.success(f"✅ matplotlib version: {matplotlib.__version__}")
     except Exception as e:
         st.error(f"❌ matplotlib import failed: {e}")
+    
 
 init_session()
 
@@ -216,6 +218,43 @@ with st.sidebar:
         options=["gpt-4o-mini", "gpt-4o", "o3-mini"],
         index=["gpt-4o-mini", "gpt-4o", "o3-mini"].index(st.session_state.selected_model)
     )
+
+    # Add test environment checkbox
+    if st.checkbox("Test Environment"):
+        st.info("Testing environment with test_classy.py...")
+        try:
+            # Get the path to test_classy.py
+            test_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_classy.py')
+            
+            # Create a temporary directory for the test
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Run the test script
+                result = subprocess.run(
+                    [sys.executable, test_script_path],
+                    capture_output=True,
+                    text=True,
+                    cwd=temp_dir,
+                    timeout=30
+                )
+
+                # Display results
+                st.code(f"Return code: {result.returncode}")
+                if result.stdout:
+                    st.code(f"Output:\n{result.stdout}")
+                if result.stderr:
+                    st.error(f"Errors:\n{result.stderr}")
+
+                # Check if the plot was generated
+                plot_path = os.path.join(temp_dir, 'cmb_temperature_spectrum.png')
+                if os.path.exists(plot_path):
+                    st.success("✅ Plot generated successfully!")
+                    # Display the plot
+                    st.image(plot_path, use_container_width=True)
+                else:
+                    st.warning("⚠️ No plot was generated")
+
+        except Exception as e:
+            st.error(f"Test failed: {str(e)}")
 
     # Check if model has changed
     if "previous_model" not in st.session_state:
@@ -404,6 +443,80 @@ def clean_code_for_execution(code):
 
 class PlotAwareExecutor(LocalCommandLineCodeExecutor):
     """
+    A specialized executor that runs Python code in-process, captures stdout,
+    and captures any matplotlib plots into memory for Streamlit display.
+    """
+
+    def __init__(self, **kwargs):
+        # Set up a dedicated working directory
+        temp_dir = tempfile.TemporaryDirectory()
+        kwargs['work_dir'] = temp_dir.name
+        super().__init__(**kwargs)
+        self._temp_dir = temp_dir  # keep alive so directory isn't removed
+
+    @contextlib.contextmanager
+    def _capture_stdout(self):
+        old_stdout = sys.stdout
+        buf = io.StringIO()
+        sys.stdout = buf
+        try:
+            yield buf
+        finally:
+            sys.stdout = old_stdout
+
+    def execute_code(self, code: str) -> Tuple[str, io.BytesIO]:
+        """
+        Executes Python code in-process, captures stdout and the most recent
+        matplotlib figure as a PNG in a BytesIO, then returns (text, image_buf).
+        """
+        # 1. Extract code from markdown fences if present
+        match = re.search(r"```(?:python)?\n(.*?)```", code, re.DOTALL)
+        cleaned = match.group(1) if match else code
+
+        # 2. Remove any plt.show() calls (optional)
+        cleaned = re.sub(r"\bplt\.show\(\s*\)", "", cleaned)
+
+        # 3. Capture stdout while exec’ing code
+        with self._capture_stdout() as out_buf:
+            # Execute in a fresh globals dict so user code can't overwrite ours
+            user_globals = {
+                "__name__": "__main__",
+                "plt": plt,
+                # import other safe built‑ins if you like
+            }
+            try:
+                exec(cleaned, user_globals)
+            except Exception as e:
+                print(f"Error during execution: {e}", file=sys.stderr)
+
+        text_output = out_buf.getvalue()
+
+        # 4. Capture the current matplotlib figure (if any) into BytesIO
+        fig = plt.gcf()
+        img_buf = io.BytesIO()
+        try:
+            fig.savefig(img_buf, format="png")
+            img_buf.seek(0)
+        except Exception:
+            img_buf = None
+
+        # 5. Clear the figure so next run is fresh
+        plt.clf()
+
+        return text_output, img_buf
+
+    def __del__(self):
+        # Cleanup the temporary directory
+        if hasattr(self, "_temp_dir"):
+            self._temp_dir.cleanup()
+
+# Example instantiation:
+executor = PlotAwareExecutor(timeout=10)
+
+
+
+class PlotAwareExecutorOld(LocalCommandLineCodeExecutor):
+    """
     A specialized code executor that handles plotting and code execution with plot capture.
     
     This executor extends LocalCommandLineCodeExecutor to:
@@ -434,6 +547,50 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         self.plot_buffer = None
         self.supported_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.pdf']
         self._temp_dir = temp_dir  # Store the temp_dir to prevent it from being garbage collected
+        
+
+    def _test_environment(self):
+        """Test the execution environment by running test_classy.py"""
+        try:
+            # Get the path to test_classy.py
+            test_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_classy.py')
+            
+            if st.session_state.debug:
+                st.session_state.debug_messages.append(("Environment Test", f"Testing with script: {test_script_path}"))
+                st.session_state.debug_messages.append(("Environment Test", f"Python executable: {sys.executable}"))
+
+            # Run the test script
+            result = subprocess.run(
+                [sys.executable, test_script_path],
+                capture_output=True,
+                text=True,
+                cwd=self.work_dir,
+                timeout=30
+            )
+
+            if st.session_state.debug:
+                st.session_state.debug_messages.append(("Environment Test", f"Return code: {result.returncode}"))
+                st.session_state.debug_messages.append(("Environment Test", f"Output: {result.stdout}"))
+                if result.stderr:
+                    st.session_state.debug_messages.append(("Environment Test", f"Errors: {result.stderr}"))
+
+            # Check if the plot was generated
+            plot_path = os.path.join(self.work_dir, 'cmb_temperature_spectrum.png')
+            if os.path.exists(plot_path):
+                if st.session_state.debug:
+                    st.session_state.debug_messages.append(("Environment Test", f"Plot generated: {plot_path}"))
+                # Load the plot into buffer
+                with open(plot_path, "rb") as f:
+                    self.plot_buffer = io.BytesIO(f.read())
+                os.remove(plot_path)
+            else:
+                if st.session_state.debug:
+                    st.session_state.debug_messages.append(("Environment Test", "No plot was generated"))
+
+        except Exception as e:
+            if st.session_state.debug:
+                st.session_state.debug_messages.append(("Environment Test", f"Test failed: {str(e)}"))
+            st.error(f"Environment test failed: {str(e)}")
 
     def execute_code(self, code: str):
         """
@@ -469,30 +626,16 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
 
         # Execute the script using the system Python interpreter
         try:
-            # Use Popen instead of run to handle large outputs
-            process = subprocess.Popen(
+            result = subprocess.run(
                 [sys.executable, script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=self.work_dir,
+                capture_output=True,
                 text=True,
-                bufsize=1  # Line buffered
+                cwd=self.work_dir,
+                timeout=10
             )
-            
-            # Set a timeout
-            try:
-                stdout, stderr = process.communicate(timeout=10)
-                output = stdout + stderr
-                
-                # Limit output size to prevent buffer overflow
-                max_output_size = 10000  # 10KB
-                if len(output) > max_output_size:
-                    output = output[:max_output_size] + "\n... (output truncated due to size)"
-                
-            except subprocess.TimeoutExpired:
-                process.kill()
-                output = "Execution timed out after 10 seconds"
-                
+            output = result.stdout + result.stderr
+        except subprocess.TimeoutExpired:
+            output = "Execution timed out after 10 seconds"
         except Exception as e:
             output = f"Error executing script: {str(e)}"
 
@@ -743,19 +886,25 @@ if user_input:
                 #    summary_method="last_msg"
                 #)
                 #execution_output = chat_result.summary
-                execution_output = executor.execute_code(last_assistant_message)
-                # Display execution results
+                execution_output, img_buf = executor.execute_code(last_assistant_message)
                 st.markdown("### Execution Results")
-                
-                # Display the plot if available
-                if executor.plot_buffer and executor.plot_buffer.getbuffer().nbytes > 0:
-                    try:
-                        st.markdown("### Plot Output")
-                        st.image(executor.plot_buffer, use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"Could not display plot: {str(e)}")
+                st.text(execution_output)
+                if img_buf:
+                    st.markdown("#### Plot")
+                    st.image(img_buf.getvalue())
                 else:
                     st.warning("No plot was generated.")
+                # Display execution results
+                
+                # Display the plot if available
+                #if executor.plot_buffer and executor.plot_buffer.getbuffer().nbytes > 0:
+                #    try:
+                #        st.markdown("### Plot Output")
+                #        st.image(executor.plot_buffer, use_container_width=True)
+                #    except Exception as e:
+                #        st.warning(f"Could not display plot: {str(e)}")
+                #else:
+                #    st.warning("No plot was generated.")
                 
                 # Check for errors and iterate if needed
                 max_iterations = 3  # Maximum number of iterations to prevent infinite loops
@@ -820,20 +969,18 @@ if user_input:
                     #    summary_method="last_msg"
                     #)
                     #execution_output = chat_result.summary
-                    execution_output = executor.execute_code(formatted_answer)
+                    execution_output, img_buf = executor.execute_code(formatted_answer)
+                    st.markdown("### Execution Results")
+                    st.text(execution_output)
+                    if img_buf:
+                        st.markdown("#### Plot")
+                        st.image(img_buf.getvalue())
+                    else:
+                        st.warning("No plot was generated.")
+                    #execution_output = executor.execute_code(formatted_answer)
                     if st.session_state.debug:
                         st.session_state.debug_messages.append(("Execution Output", execution_output))
                     
-                    # Display new execution results
-                    st.markdown(f"### Execution Results (Attempt {current_iteration})")
-                    if executor.plot_buffer and executor.plot_buffer.getbuffer().nbytes > 0:
-                        try:
-                            st.markdown("### Plot Output")
-                            st.image(executor.plot_buffer, use_container_width=True)
-                        except Exception as e:
-                            st.warning(f"Could not display plot: {str(e)}")
-                    else:
-                        st.warning("No plot was generated.")
                     
                     # Update last_assistant_message with the formatted answer for next iteration
                     last_assistant_message = formatted_answer
