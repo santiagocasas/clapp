@@ -407,10 +407,16 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         Args:
             **kwargs: Additional arguments passed to LocalCommandLineCodeExecutor
         """
+        # Create a temporary directory first
+        temp_dir = tempfile.TemporaryDirectory()
+        kwargs['work_dir'] = temp_dir.name
+        
+        # Initialize the parent class with the temporary directory
         super().__init__(**kwargs)
+        
         self.plot_buffer = None
-        self.work_dir = tempfile.mkdtemp()
         self.supported_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.pdf']
+        self._temp_dir = temp_dir  # Store the temp_dir to prevent it from being garbage collected
 
     def execute_code(self, code: str):
         """
@@ -488,11 +494,8 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
 
     def __del__(self):
         """Clean up temporary directory when the executor is destroyed"""
-        try:
-            import shutil
-            shutil.rmtree(self.work_dir)
-        except:
-            pass
+        if hasattr(self, '_temp_dir'):
+            self._temp_dir.cleanup()
 
 executor = PlotAwareExecutor(timeout=10)
 
