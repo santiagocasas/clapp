@@ -480,26 +480,27 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         stdout_text = out_buf.getvalue()
         stderr_text = err_buf.getvalue()
 
-        # 4) Display the figure directly using st.pyplot
+        # 4) Get the current figure
+        fig = None
         try:
             fig = plt.gcf()
-            if fig.get_axes():  # Check if there are any axes in the figure
-                st.subheader("Generated Plot")
-                st.pyplot(fig, use_container_width=True)
+            if not fig.get_axes():  # If no axes, it's not a valid plot
+                fig = None
         except Exception as e:
             if st.session_state.debug:
-                st.session_state.debug_messages.append(("Plot Display", f"Error displaying plot: {str(e)}"))
+                st.session_state.debug_messages.append(("Plot Capture", f"Error getting figure: {str(e)}"))
+            fig = None
         finally:
             plt.clf()
 
-        # 5) Return combined output
+        # 5) Return both output and figure
         full_output = ""
         if stdout_text:
             full_output += f"STDOUT:\n{stdout_text}\n"
         if stderr_text:
             full_output += f"STDERR:\n{stderr_text}\n"
 
-        return full_output
+        return full_output, fig
 
 # Example instantiation:
 executor = PlotAwareExecutor(timeout=10)
@@ -877,25 +878,15 @@ if user_input:
                 #    summary_method="last_msg"
                 #)
                 #execution_output = chat_result.summary
-                execution_output = executor.execute_code(last_assistant_message)
+                execution_output, fig = executor.execute_code(last_assistant_message)
                 st.subheader("Execution Output")
                 st.text(execution_output)  # now contains both STDOUT and STDERR
-                if executor.plot_buffer is not None:
+                
+                if fig is not None:
                     st.subheader("Generated Plot")
-                    st.image(executor.plot_buffer.getvalue())
+                    st.pyplot(fig, use_container_width=True)
                 else:
                     st.warning("No plot was generated.")
-                # Display execution results
-                
-                # Display the plot if available
-                #if executor.plot_buffer and executor.plot_buffer.getbuffer().nbytes > 0:
-                #    try:
-                #        st.markdown("### Plot Output")
-                #        st.image(executor.plot_buffer, use_container_width=True)
-                #    except Exception as e:
-                #        st.warning(f"Could not display plot: {str(e)}")
-                #else:
-                #    st.warning("No plot was generated.")
                 
                 # Check for errors and iterate if needed
                 max_iterations = 3  # Maximum number of iterations to prevent infinite loops
@@ -960,15 +951,16 @@ if user_input:
                     #    summary_method="last_msg"
                     #)
                     #execution_output = chat_result.summary
-                    execution_output = executor.execute_code(last_assistant_message)
+                    execution_output, fig = executor.execute_code(last_assistant_message)
                     st.subheader("Execution Output")
                     st.text(execution_output)  # now contains both STDOUT and STDERR
-                    if executor.plot_buffer is not None:
+                    
+                    if fig is not None:
                         st.subheader("Generated Plot")
-                        st.image(executor.plot_buffer.getvalue())
+                        st.pyplot(fig, use_container_width=True)
                     else:
                         st.warning("No plot was generated.")
-                    #execution_output = executor.execute_code(formatted_answer)
+                    
                     if st.session_state.debug:
                         st.session_state.debug_messages.append(("Execution Output", execution_output))
                     
