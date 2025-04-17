@@ -36,6 +36,7 @@ import re
 import subprocess
 import sys
 from typing import Tuple
+import contextlib  # for contextlib.contextmanager
 
 # --- Helper Functions ---
 def save_encrypted_key(encrypted_key):
