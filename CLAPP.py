@@ -443,56 +443,44 @@ def clean_code_for_execution(code):
 #temp_dir = tempfile.TemporaryDirectory()
 
 class PlotAwareExecutor(LocalCommandLineCodeExecutor):
-    """
-    A specialized executor that runs Python code in-process, captures stdout,
-    and captures any matplotlib plots into memory for Streamlit display.
-    """
-
     def __init__(self, **kwargs):
-        # Set up a dedicated working directory
+        import tempfile
         temp_dir = tempfile.TemporaryDirectory()
         kwargs['work_dir'] = temp_dir.name
         super().__init__(**kwargs)
-        self._temp_dir = temp_dir  # keep alive so directory isn't removed
+        self._temp_dir = temp_dir
 
     @contextlib.contextmanager
-    def _capture_stdout(self):
-        old_stdout = sys.stdout
-        buf = io.StringIO()
-        sys.stdout = buf
+    def _capture_output(self):
+        old_out, old_err = sys.stdout, sys.stderr
+        buf_out, buf_err = io.StringIO(), io.StringIO()
+        sys.stdout, sys.stderr = buf_out, buf_err
         try:
-            yield buf
+            yield buf_out, buf_err
         finally:
-            sys.stdout = old_stdout
+            sys.stdout, sys.stderr = old_out, old_err
 
-    def execute_code(self, code: str) -> Tuple[str, io.BytesIO]:
-        """
-        Executes Python code in-process, captures stdout and the most recent
-        matplotlib figure as a PNG in a BytesIO, then returns (text, image_buf).
-        """
-        # 1. Extract code from markdown fences if present
+    def execute_code(self, code: str):
+        # 1) Extract code from markdown
         match = re.search(r"```(?:python)?\n(.*?)```", code, re.DOTALL)
         cleaned = match.group(1) if match else code
+        cleaned = cleaned.replace("plt.show()", "")
 
-        # 2. Remove any plt.show() calls (optional)
-        cleaned = re.sub(r"\bplt\.show\(\s*\)", "", cleaned)
-
-        # 3. Capture stdout while exec’ing code
-        with self._capture_stdout() as out_buf:
-            # Execute in a fresh globals dict so user code can't overwrite ours
-            user_globals = {
-                "__name__": "__main__",
-                "plt": plt,
-                # import other safe built‑ins if you like
-            }
+        # 2) Capture stdout & stderr
+        with self._capture_output() as (out_buf, err_buf):
             try:
-                exec(cleaned, user_globals)
-            except Exception as e:
-                print(f"Error during execution: {e}", file=sys.stderr)
+                # Run the code
+                exec(cleaned, {"plt": plt, "__name__": "__main__"})
+            except Exception:
+                # Print traceback to stderr buffer
+                import traceback
+                traceback.print_exc(file=sys.stderr)
 
-        text_output = out_buf.getvalue()
+        # 3) Gather text output
+        stdout_text = out_buf.getvalue()
+        stderr_text = err_buf.getvalue()
 
-        # 4. Capture the current matplotlib figure (if any) into BytesIO
+        # 4) Capture the figure
         fig = plt.gcf()
         img_buf = io.BytesIO()
         try:
@@ -500,16 +488,18 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
             img_buf.seek(0)
         except Exception:
             img_buf = None
-
-        # 5. Clear the figure so next run is fresh
         plt.clf()
 
-        return text_output, img_buf
+        # 5) Return combined output
+        full_output = ""
+        if stdout_text:
+            full_output += f"STDOUT:\n{stdout_text}\n"
+        if stderr_text:
+            full_output += f"STDERR:\n{stderr_text}\n"
 
-    def __del__(self):
-        # Cleanup the temporary directory
-        if hasattr(self, "_temp_dir"):
-            self._temp_dir.cleanup()
+        # Store the image buffer for later display
+        self.plot_buffer = img_buf
+        return full_output
 
 # Example instantiation:
 executor = PlotAwareExecutor(timeout=10)
@@ -887,12 +877,12 @@ if user_input:
                 #    summary_method="last_msg"
                 #)
                 #execution_output = chat_result.summary
-                execution_output, img_buf = executor.execute_code(last_assistant_message)
-                st.markdown("### Execution Results")
-                st.text(execution_output)
-                if img_buf:
-                    st.markdown("#### Plot")
-                    st.image(img_buf.getvalue())
+                execution_output = executor.execute_code(last_assistant_message)
+                st.subheader("Execution Output")
+                st.text(execution_output)  # now contains both STDOUT and STDERR
+                if executor.plot_buffer:
+                    st.subheader("Generated Plot")
+                    st.image(executor.plot_buffer.getvalue())
                 else:
                     st.warning("No plot was generated.")
                 # Display execution results
@@ -970,12 +960,12 @@ if user_input:
                     #    summary_method="last_msg"
                     #)
                     #execution_output = chat_result.summary
-                    execution_output, img_buf = executor.execute_code(formatted_answer)
-                    st.markdown("### Execution Results")
-                    st.text(execution_output)
-                    if img_buf:
-                        st.markdown("#### Plot")
-                        st.image(img_buf.getvalue())
+                    execution_output = executor.execute_code(last_assistant_message)
+                    st.subheader("Execution Output")
+                    st.text(execution_output)  # now contains both STDOUT and STDERR
+                    if executor.plot_buffer:
+                        st.subheader("Generated Plot")
+                        st.image(executor.plot_buffer.getvalue())
                     else:
                         st.warning("No plot was generated.")
                     #execution_output = executor.execute_code(formatted_answer)
