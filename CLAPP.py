@@ -12,10 +12,10 @@ from langchain_openai import ChatOpenAI
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.memory import ChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.documents import Document
 
 from langchain.callbacks.base import BaseCallbackHandler
@@ -480,15 +480,17 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         stdout_text = out_buf.getvalue()
         stderr_text = err_buf.getvalue()
 
-        # 4) Capture the figure
-        fig = plt.gcf()
-        img_buf = io.BytesIO()
+        # 4) Display the figure directly using st.pyplot
         try:
-            fig.savefig(img_buf, format="png")
-            img_buf.seek(0)
-        except Exception:
-            img_buf = None
-        plt.clf()
+            fig = plt.gcf()
+            if fig.get_axes():  # Check if there are any axes in the figure
+                st.subheader("Generated Plot")
+                st.pyplot(fig, use_container_width=True)
+        except Exception as e:
+            if st.session_state.debug:
+                st.session_state.debug_messages.append(("Plot Display", f"Error displaying plot: {str(e)}"))
+        finally:
+            plt.clf()
 
         # 5) Return combined output
         full_output = ""
@@ -497,8 +499,6 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         if stderr_text:
             full_output += f"STDERR:\n{stderr_text}\n"
 
-        # Store the image buffer for later display
-        self.plot_buffer = img_buf
         return full_output
 
 # Example instantiation:
@@ -880,7 +880,7 @@ if user_input:
                 execution_output = executor.execute_code(last_assistant_message)
                 st.subheader("Execution Output")
                 st.text(execution_output)  # now contains both STDOUT and STDERR
-                if executor.plot_buffer:
+                if executor.plot_buffer is not None:
                     st.subheader("Generated Plot")
                     st.image(executor.plot_buffer.getvalue())
                 else:
@@ -963,7 +963,7 @@ if user_input:
                     execution_output = executor.execute_code(last_assistant_message)
                     st.subheader("Execution Output")
                     st.text(execution_output)  # now contains both STDOUT and STDERR
-                    if executor.plot_buffer:
+                    if executor.plot_buffer is not None:
                         st.subheader("Generated Plot")
                         st.image(executor.plot_buffer.getvalue())
                     else:
