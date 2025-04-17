@@ -30,7 +30,6 @@ ell = cls['ell'][2:]  # Start from 2 to avoid the monopole and dipole
 clTT = cls['tt'][2:]
 
 # Plotting
-plt.figure(figsize=(10, 6))
 factor = ell * (ell + 1) / (2 * np.pi) * 1e12  # Factor to convert to D_ell
 
 plt.plot(ell, factor * clTT, label='Temperature $C_\ell^{TT}$', color='b')
@@ -42,7 +41,3 @@ plt.yscale('log')
 plt.grid(True)
 plt.legend()
 plt.savefig('cmb_temperature_spectrum.png')  # Save the plot to a file
-
-# Clean up
-cosmo.struct_cleanup()
-cosmo.empty()
