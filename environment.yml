@@ -1,4 +1,4 @@
-name: py310
+name: streamapp
 channels:
   - conda-forge
   - nodefaults

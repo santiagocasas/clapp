@@ -220,42 +220,131 @@ with st.sidebar:
         index=["gpt-4o-mini", "gpt-4o", "o3-mini"].index(st.session_state.selected_model)
     )
 
-    # Add test environment checkbox
-    if st.checkbox("Test Environment"):
-        st.info("Testing environment with test_classy.py...")
+    # Add CLASS installation and testing buttons
+    st.markdown("### 🔧 CLASS Setup")
+    
+    if st.button("🔄 Install CLASS"):
+        # Show simple initial message
+        status_placeholder = st.empty()
+        status_placeholder.info("Installing CLASS... This could take a few minutes.")
+        
+        try:
+            # Get the path to install_classy.sh
+            install_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'install_classy.sh')
+            
+            # Make the script executable
+            os.chmod(install_script_path, 0o755)
+            
+            # Run the installation script with shell=True to ensure proper execution
+            process = subprocess.Popen(
+                [install_script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                shell=True,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+            
+            # Create a placeholder for the current line
+            current_line_placeholder = st.empty()
+            
+            # Collect output in the background while showing just the last line
+            output_text = ""
+            for line in iter(process.stdout.readline, ''):
+                output_text += line
+                # Update the placeholder with just the current line (real-time feedback)
+                if line.strip():  # Only update for non-empty lines
+                    current_line_placeholder.info(f"Current: {line.strip()}")
+            
+            # Get the final return code
+            return_code = process.wait()
+            
+            # Clear the current line placeholder when done
+            current_line_placeholder.empty()
+            
+            # Update status based on result
+            if return_code == 0:
+                status_placeholder.success("✅ CLASS installed successfully!")
+            else:
+                status_placeholder.error(f"❌ CLASS installation failed with return code: {return_code}")
+                
+            # Display the full output in an expander (not expanded by default)
+            with st.expander("View Full Installation Log", expanded=False):
+                st.code(output_text)
+                
+        except Exception as e:
+            status_placeholder.error(f"Installation failed with exception: {str(e)}")
+            st.exception(e)  # Show the full exception for debugging
+
+    # Add test environment button
+    if st.button("🧪 Test CLASS"):
+        # Show simple initial message
+        status_placeholder = st.empty()
+        status_placeholder.info("Testing CLASS environment... This could take a moment.")
+        
         try:
             # Get the path to test_classy.py
             test_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_classy.py')
             
             # Create a temporary directory for the test
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Run the test script
-                result = subprocess.run(
+                # Run the test script with streaming output
+                process = subprocess.Popen(
                     [sys.executable, test_script_path],
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
                     text=True,
-                    cwd=temp_dir,
-                    timeout=30
+                    bufsize=1,
+                    cwd=temp_dir
                 )
-
-                # Display results
-                st.code(f"Return code: {result.returncode}")
-                if result.stdout:
-                    st.code(f"Output:\n{result.stdout}")
-                if result.stderr:
-                    st.error(f"Errors:\n{result.stderr}")
-
+                
+                # Create a placeholder for the current line
+                current_line_placeholder = st.empty()
+                
+                # Collect output in the background while showing just the last line
+                output_text = ""
+                for line in iter(process.stdout.readline, ''):
+                    output_text += line
+                    # Update the placeholder with just the current line (real-time feedback)
+                    if line.strip():  # Only update for non-empty lines
+                        current_line_placeholder.info(f"Current: {line.strip()}")
+                
+                # Get the final return code
+                return_code = process.wait()
+                
+                # Clear the current line placeholder when done
+                current_line_placeholder.empty()
+                
+                # Update status based on result
+                if return_code == 0:
+                    status_placeholder.success("✅ CLASS test completed successfully!")
+                else:
+                    status_placeholder.error(f"❌ CLASS test failed with return code: {return_code}")
+                
+                # Display the full output in an expander (not expanded by default)
+                with st.expander("View Full Test Log", expanded=False):
+                    st.code(output_text)
+                
+                # Check for common errors
+                if "ModuleNotFoundError" in output_text or "ImportError" in output_text:
+                    st.error("❌ Python module import error detected. Make sure CLASS is properly installed.")
+                
+                if "CosmoSevereError" in output_text or "CosmoComputationError" in output_text:
+                    st.error("❌ CLASS computation error detected.")
+                
                 # Check if the plot was generated
                 plot_path = os.path.join(temp_dir, 'cmb_temperature_spectrum.png')
                 if os.path.exists(plot_path):
-                    st.success("✅ Plot generated successfully!")
-                    # Display the plot
+                    # Show the plot if it was generated
+                    st.subheader("Generated CMB Power Spectrum")
                     st.image(plot_path, use_container_width=True)
                 else:
                     st.warning("⚠️ No plot was generated")
-
+                    
         except Exception as e:
-            st.error(f"Test failed: {str(e)}")
+            status_placeholder.error(f"Test failed with exception: {str(e)}")
+            st.exception(e)  # Show the full exception for debugging
 
     # Check if model has changed
     if "previous_model" not in st.session_state:
