@@ -6,6 +6,14 @@
 
 CLAPP is a Streamlit application that provides an AI pair programming assistant specialized in the CLASS cosmology code. It uses LangChain and OpenAI models, leveraging Retrieval-Augmented Generation (RAG) with CLASS documentation and code examples to provide informed responses and assist with coding tasks.
 
+## Collaborators
+
+* Santiago Casas
+* Christian Fidler
+* Boris Bolliet
+* Julien Lesgourgues
+* With ideas from: Francisco Villaescusa-Navarro and the CAMELS-Agent-App : https://github.com/franciscovillaescusa/CAMELS_Agents
+
 ## Features
 
 * **Conversational AI:** Interact with an AI assistant knowledgeable about CLASS and cosmology.
