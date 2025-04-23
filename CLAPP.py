@@ -86,7 +86,7 @@ class StreamHandler(BaseCallbackHandler):
 
 # --- Streamlit Page Config ---
 st.set_page_config(
-    page_title="CLASS Agent",
+    page_title="CLAPP Agent",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="auto"
