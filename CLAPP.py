@@ -483,34 +483,54 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         cleaned = cleaned.replace("plt.show()", "")
         
         # Add timestamp for saving figures only if there's plt usage in the code
-        import time
         timestamp = time.strftime("%Y-%m-%d-%H-%M")
-        plot_path = os.path.join('images', f'temporary_{timestamp}.png')
+        plot_path = None
         for line in cleaned.split("\n"):
             if "plt.savefig" in line: 
+                plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
                 cleaned = cleaned.replace(line, f"plt.savefig('{plot_path}')")
                 break
+        else:
+            # If there's a plot but no save, auto-insert save
+            if "plt." in cleaned:
+                plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
+                cleaned += f"\nplt.savefig('{plot_path}')"
 
-        # 2) Capture stdout & stderr
-        with self._capture_output() as (out_buf, err_buf):
-            try:
-                # Run the code
-                exec(cleaned, {"plt": plt, "__name__": "__main__"})
-            except Exception:
-                # Print traceback to stderr buffer
+        # Create a temporary Python file to execute
+        temp_script_path = os.path.join(self._temp_dir.name, f'temp_script_{timestamp}.py')
+        with open(temp_script_path, 'w') as f:
+            f.write(cleaned)
+        
+        full_output = ""
+        try:
+            # 2) Capture stdout using subprocess
+            process = subprocess.Popen(
+                [sys.executable, temp_script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1, 
+                cwd=self._temp_dir.name
+            )
+            stdout, _ = process.communicate()
+
+            # 3) Format the output
+            with self._capture_output() as (out_buf, err_buf):
+                if stdout:
+                    out_buf.write(stdout)
+                stdout_text = out_buf.getvalue()
+                stderr_text = err_buf.getvalue()
+
+            if stdout_text:
+                full_output += f"STDOUT:\n{stdout_text}\n"
+            if stderr_text:
+                full_output += f"STDERR:\n{stderr_text}\n"
+
+        except Exception:
+            with self._capture_output() as (out_buf, err_buf):
                 import traceback
                 traceback.print_exc(file=sys.stderr)
-
-        # 3) Gather text output
-        stdout_text = out_buf.getvalue()
-        stderr_text = err_buf.getvalue()
-
-        # 5) Return both output and figure
-        full_output = ""
-        if stdout_text:
-            full_output += f"STDOUT:\n{stdout_text}\n"
-        if stderr_text:
-            full_output += f"STDERR:\n{stderr_text}\n"
+                full_output += f"STDERR:\n{err_buf.getvalue()}\n"
 
         return full_output, plot_path
 
