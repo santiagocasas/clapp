@@ -4,7 +4,7 @@
   <img src="images/CLAPP.png" alt="CLAPP Logo" width="400"/>
 </p>
 
-CLAPP is a Streamlit application that provides an AI pair programming assistant specialized in the CLASS cosmology code. It uses LangChain and OpenAI models, leveraging Retrieval-Augmented Generation (RAG) with CLASS documentation and code examples to provide informed responses and assist with coding tasks.
+CLAPP is a Streamlit application that provides an AI pair programming assistant specialized in the [CLASS](https://github.com/lesgourg/class_public) cosmology code. It uses LangChain and OpenAI models, leveraging Retrieval-Augmented Generation (RAG) with CLASS documentation and code examples to provide informed responses and assist with coding tasks.
 
 ## Collaborators
 
@@ -12,15 +12,15 @@ CLAPP is a Streamlit application that provides an AI pair programming assistant 
 * Christian Fidler
 * Boris Bolliet
 * Julien Lesgourgues
-* With ideas from: Francisco Villaescusa-Navarro and the CAMELS-Agent-App : https://github.com/franciscovillaescusa/CAMELS_Agents
+* With ideas from: Francisco Villaescusa-Navarro and the [CAMELS-Agent-App](https://github.com/franciscovillaescusa/CAMELS_Agents)
 
 ## Features
 
-* **Conversational AI:** Interact with an AI assistant knowledgeable about CLASS and cosmology.
-* **CLASS Integration:** Built-in tools to install, test, and use the CLASS cosmological code.
+* **Conversational AI:** Interact with an AI assistant knowledgeable about [CLASS](https://github.com/lesgourg/class_public) and cosmology.
+* **CLASS Integration:** Built-in tools to install, test, and use the [CLASS](https://github.com/lesgourg/class_public) cosmological code.
 * **Code Execution:** Executes Python code snippets in real-time, with automatic error detection and correction.
-* **Plotting Support:** Generates and displays cosmological plots from CLASS outputs.
-* **RAG Integration:** Retrieves relevant information from CLASS documentation and code (`./class-data/`) to answer questions accurately.
+* **Plotting Support:** Generates and displays cosmological plots from [CLASS](https://github.com/lesgourg/class_public) outputs.
+* **RAG Integration:** Retrieves relevant information from [CLASS](https://github.com/lesgourg/class_public) documentation and code (`./class-data/`) to answer questions accurately.
 * **Multiple Response Modes:** 
   * **Fast Mode:** Quick responses with good quality (recommended for most uses)
   * **Swarm Mode:** Multi-agent refined responses for more complex questions (takes longer)
