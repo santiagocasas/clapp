@@ -127,22 +127,6 @@ def init_session():
     if "debug_messages" not in st.session_state:
         st.session_state.debug_messages = []
 
-if st.sidebar.checkbox("Run environment diagnostics"):
-    import sys
-    st.code("\n".join(sys.path), language="bash")
-    
-    try:
-        from classy import Class
-        st.success("✅ classy is available")
-    except Exception as e:
-        st.error(f"❌ classy import failed: {e}")
-
-    try:
-        import matplotlib
-        st.success(f"✅ matplotlib version: {matplotlib.__version__}")
-    except Exception as e:
-        st.error(f"❌ matplotlib import failed: {e}")
-    
 
 init_session()
 
@@ -151,8 +135,8 @@ init_session()
 # --- Sidebar Configuration ---
 with st.sidebar:
     st.header("🔐 API & Assistants")
-    api_key = st.text_input("OpenAI API Key", type="password")
-    user_password = st.text_input("Password to encrypt/decrypt API key", type="password")
+    api_key = st.text_input("1. OpenAI API Key", type="password")
+    user_password = st.text_input("2. Password to encrypt/decrypt API key", type="password")
     
     # When both API key and password are provided
     if api_key and user_password:
@@ -215,14 +199,100 @@ with st.sidebar:
                 st.error(f"Error clearing saved key: {str(e)}")
 
     st.session_state.selected_model = st.selectbox(
-        "🧠 Choose LLM model",
+        "3. Choose LLM model 🧠",
         options=["gpt-4o-mini", "gpt-4o", "o3-mini"],
         index=["gpt-4o-mini", "gpt-4o", "o3-mini"].index(st.session_state.selected_model)
     )
 
+
+    # Check if model has changed
+    if "previous_model" not in st.session_state:
+        st.session_state.previous_model = st.session_state.selected_model
+    elif st.session_state.previous_model != st.session_state.selected_model:
+        # Reset relevant state variables when model changes
+        st.session_state.vector_store = None
+        st.session_state.greeted = False
+        st.session_state.messages = []
+        st.session_state.memory = ChatMessageHistory()
+        st.session_state.previous_model = st.session_state.selected_model
+        st.info("Model changed! Please initialize again with the new model.")
+
+    st.write("### Response Mode")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        mode_is_fast = st.toggle("Fast Mode", value=True)
+    with col2:
+        if mode_is_fast:
+            st.caption("✨ Quick responses with good quality (recommended for most uses)")
+        else:
+            st.caption("🎯 Swarm mode, more refined responses (may take longer)")
+    
+
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+        
+        # Initialize only after model is selected
+        if st.button("🚀 Initialize with Selected Model"):
+            # First initialization without streaming
+            st.session_state.llm = ChatOpenAI(
+                    model_name=st.session_state.selected_model,
+                    openai_api_key=api_key,
+                    temperature=1.0
+            )
+
+            if st.session_state.vector_store is None:
+                embedding_status = st.empty()
+                embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+                embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+                
+                # Get all files from class-data directory
+                all_docs = []
+                for filename in os.listdir("./class-data"):
+                    file_path = os.path.join("./class-data", filename)
+                    
+                    if filename.endswith('.pdf'):
+                        # Handle PDF files
+                        loader = PyPDFLoader(file_path)
+                        docs = loader.load()
+                        all_docs.extend(docs)
+                    elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
+                        # Handle text and Python files
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            text = f.read()
+                            # Create a document with metadata
+                            all_docs.append(Document(
+                                page_content=text,
+                                metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
+                            ))
+
+                # Split and process all documents
+                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                def sanitize(documents):
+                    for doc in documents:
+                        doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                    return documents
+                    
+                splits = text_splitter.split_documents(all_docs)
+                splits = sanitize(splits)
+                
+                # Create vector store from all documents
+                st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+                embedding_status.empty()  # Clear the loading message
+
+            # Trigger welcome message once by requesting it from the assistant
+            if not st.session_state.greeted:
+                greeting = st.session_state.llm.invoke([
+                    SystemMessage(content=Initial_Agent_Instructions),
+                    HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
+                ])
+                st.session_state.messages.append({"role": "assistant", "content": greeting.content})
+                st.session_state.greeted = True
+            st.rerun()  # Refresh the page to show the initialized state
+
+    st.markdown("---")  # Add a separator for better visual organization
     # Add CLASS installation and testing buttons
     st.markdown("### 🔧 CLASS Setup")
-    
+    st.text("Install CLASS to enable code execution and plotting capabilities")
     if st.button("🔄 Install CLASS"):
         # Show simple initial message
         status_placeholder = st.empty()
@@ -345,92 +415,8 @@ with st.sidebar:
         except Exception as e:
             status_placeholder.error(f"Test failed with exception: {str(e)}")
             st.exception(e)  # Show the full exception for debugging
-
-    # Check if model has changed
-    if "previous_model" not in st.session_state:
-        st.session_state.previous_model = st.session_state.selected_model
-    elif st.session_state.previous_model != st.session_state.selected_model:
-        # Reset relevant state variables when model changes
-        st.session_state.vector_store = None
-        st.session_state.greeted = False
-        st.session_state.messages = []
-        st.session_state.memory = ChatMessageHistory()
-        st.session_state.previous_model = st.session_state.selected_model
-        st.info("Model changed! Please initialize again with the new model.")
-
-    st.write("### Response Mode")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        mode_is_fast = st.toggle("Fast Mode", value=True)
-    with col2:
-        if mode_is_fast:
-            st.caption("✨ Quick responses with good quality (recommended for most uses)")
-        else:
-            st.caption("🎯 Swarm mode, more refined responses (may take longer)")
     
     st.markdown("---")  # Add a separator for better visual organization
-
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
-        
-        # Initialize only after model is selected
-        if st.button("🚀 Initialize with Selected Model"):
-            # First initialization without streaming
-            st.session_state.llm = ChatOpenAI(
-                    model_name=st.session_state.selected_model,
-                    openai_api_key=api_key,
-                    temperature=1.0
-            )
-
-            if st.session_state.vector_store is None:
-                embedding_status = st.empty()
-                embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-                embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-                
-                # Get all files from class-data directory
-                all_docs = []
-                for filename in os.listdir("./class-data"):
-                    file_path = os.path.join("./class-data", filename)
-                    
-                    if filename.endswith('.pdf'):
-                        # Handle PDF files
-                        loader = PyPDFLoader(file_path)
-                        docs = loader.load()
-                        all_docs.extend(docs)
-                    elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
-                        # Handle text and Python files
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            text = f.read()
-                            # Create a document with metadata
-                            all_docs.append(Document(
-                                page_content=text,
-                                metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
-                            ))
-
-                # Split and process all documents
-                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                def sanitize(documents):
-                    for doc in documents:
-                        doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                    return documents
-                    
-                splits = text_splitter.split_documents(all_docs)
-                splits = sanitize(splits)
-                
-                # Create vector store from all documents
-                st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-                embedding_status.empty()  # Clear the loading message
-
-            # Trigger welcome message once by requesting it from the assistant
-            if not st.session_state.greeted:
-                greeting = st.session_state.llm.invoke([
-                    SystemMessage(content=Initial_Agent_Instructions),
-                    HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
-                ])
-                st.session_state.messages.append({"role": "assistant", "content": greeting.content})
-                st.session_state.greeted = True
-            st.rerun()  # Refresh the page to show the initialized state
-
     st.session_state.debug = st.checkbox("🔍 Show Debug Info")
     if st.button("🗑️ Reset Chat"):
         st.session_state.clear()
@@ -469,65 +455,6 @@ def retrieve_context(question):
     return "\n\n".join([doc.page_content for doc in docs])
 
 
-def clean_code_for_execution(code):
-    """Remove plt.show() calls and add plt.savefig() for proper plot capture."""
-    # Split code into lines
-    lines = code.split('\n')
-    cleaned_lines = []
-    
-    # Track if we're in a code block
-    in_code_block = False
-    has_plotting = False
-    
-    # Add plot configuration at the start if we find any plotting commands
-    for line in lines:
-        if any(plot_cmd in line for plot_cmd in ['plt.plot', 'plt.scatter', 'plt.bar', 'plt.hist', 'plt.imshow', 'plt.figure', 'plt.subplot']):
-            has_plotting = True
-            break
-    
-    if has_plotting:
-        cleaned_lines.extend([
-            "import matplotlib.pyplot as plt",
-            "plt.rcParams['figure.figsize'] = [8, 6]  # Set figure size",
-            "plt.rcParams['figure.dpi'] = 72  # Set lower DPI for smaller file size",
-            "plt.rcParams['savefig.dpi'] = 72  # Set save DPI",
-            "plt.rcParams['savefig.bbox'] = 'tight'  # Tight layout",
-            "plt.rcParams['savefig.pad_inches'] = 0.1  # Minimal padding",
-            ""
-        ])
-    
-    for line in lines:
-        # Check for code block markers
-        if line.startswith('```'):
-            if in_code_block:
-                # End of code block, add savefig if needed
-                if has_plotting:
-                    cleaned_lines.append("fig = plt.gcf()")
-                    cleaned_lines.append("fig.savefig('plot.png', dpi=72, bbox_inches='tight', pad_inches=0.1)")
-                    cleaned_lines.append("plt.close('all')")
-                in_code_block = False
-                has_plotting = False
-            else:
-                in_code_block = True
-            cleaned_lines.append(line)
-            continue
-        
-        if in_code_block:
-            # Skip plt.show() calls
-            if 'plt.show()' in line:
-                continue
-            # Skip other problematic statements
-            if line.strip().startswith('show('):
-                continue
-            # Check for plotting commands
-            if any(plot_cmd in line for plot_cmd in ['plt.plot', 'plt.scatter', 'plt.bar', 'plt.hist', 'plt.imshow', 'plt.figure', 'plt.subplot']):
-                has_plotting = True
-            cleaned_lines.append(line)
-        else:
-            cleaned_lines.append(line)
-    
-    return '\n'.join(cleaned_lines)
-
 # Set up code execution environment
 #temp_dir = tempfile.TemporaryDirectory()
 
@@ -558,9 +485,11 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         # Add timestamp for saving figures only if there's plt usage in the code
         import time
         timestamp = time.strftime("%Y-%m-%d-%H-%M")
-        plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-        if "plt." in cleaned:
-            cleaned += f"\nplt.savefig('{plot_path}')\n"
+        plot_path = os.path.join('images', f'temporary_{timestamp}.png')
+        for line in cleaned.split("\n"):
+            if "plt.savefig" in line: 
+                cleaned = cleaned.replace(line, f"plt.savefig('{plot_path}')")
+                break
 
         # 2) Capture stdout & stderr
         with self._capture_output() as (out_buf, err_buf):
@@ -576,20 +505,6 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         stdout_text = out_buf.getvalue()
         stderr_text = err_buf.getvalue()
 
-        # 4) Get the current figure
-        # fig = None
-        # try:
-        #     fig = plt.gcf()
-        #     if not fig.get_axes():  # If no axes, it's not a valid plot
-        #         fig = None
-        # except Exception as e:
-        #     if st.session_state.debug:
-        #         st.session_state.debug_messages.append(("Plot Capture", f"Error getting figure: {str(e)}"))
-        #     fig = None
-        # finally:
-        #     plt.clf()
-
-        
         # 5) Return both output and figure
         full_output = ""
         if stdout_text:
@@ -822,7 +737,8 @@ if user_input:
                 if os.path.exists(plot_path):
                     st.success("✅ Plot generated successfully!")
                     # Display the plot
-                    st.image(plot_path, use_container_width=True)
+                    #st.image(plot_path, use_container_width=True)
+                    st.image(plot_path, width=500)
                 else:
                     st.warning("⚠️ No plot was generated")
                 
@@ -896,7 +812,7 @@ if user_input:
                     if os.path.exists(plot_path):
                         st.success("✅ Plot generated successfully!")
                         # Display the plot
-                        st.image(plot_path, use_container_width=True)
+                        st.image(plot_path, width=500)
                     else:
                         st.warning("⚠️ No plot was generated")
                     
