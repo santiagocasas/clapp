@@ -471,6 +471,16 @@ with st.sidebar:
     if st.session_state.last_token_count > 0:
         st.markdown(f"🧮 **Last response token usage:** `{st.session_state.last_token_count}` tokens")
 
+    # --- Display all saved plots in sidebar ---
+    if "generated_plots" in st.session_state and st.session_state.generated_plots:
+        with st.expander("📊 Plot Gallery", expanded=False):
+            st.write("All plots generated during this session:")
+            # Use a single column layout for the sidebar
+            for i, plot_path in enumerate(st.session_state.generated_plots):
+                if os.path.exists(plot_path):
+                    st.image(plot_path, width=250, caption=os.path.basename(plot_path))
+                    st.markdown("---")  # Add separator between plots
+
 # --- Retrieval + Prompt Construction ---
 def build_messages(context, question, system):
     system_msg = SystemMessage(content=system)
@@ -507,10 +517,16 @@ def retrieve_context(question):
 class PlotAwareExecutor(LocalCommandLineCodeExecutor):
     def __init__(self, **kwargs):
         import tempfile
+        # Create a persistent plots directory if it doesn't exist
+        plots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots')
+        os.makedirs(plots_dir, exist_ok=True)
+        
+        # Still use a temp dir for code execution
         temp_dir = tempfile.TemporaryDirectory()
         kwargs['work_dir'] = temp_dir.name
         super().__init__(**kwargs)
         self._temp_dir = temp_dir
+        self._plots_dir = plots_dir
 
     @contextlib.contextmanager
     def _capture_output(self):
@@ -529,18 +545,21 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         cleaned = cleaned.replace("plt.show()", "")
         
         # Add timestamp for saving figures only if there's plt usage in the code
-        timestamp = time.strftime("%Y-%m-%d-%H-%M")
-        plot_path = None
+        timestamp = time.strftime("%Y-%m-%d-%H-%M-%S")
+        plot_filename = f'plot_{timestamp}.png'
+        plot_path = os.path.join(self._plots_dir, plot_filename)
+        temp_plot_path = None
+        
         for line in cleaned.split("\n"):
             if "plt.savefig" in line: 
-                plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-                cleaned = cleaned.replace(line, f"plt.savefig('{plot_path}', dpi=300)")
+                temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
+                cleaned = cleaned.replace(line, f"plt.savefig('{temp_plot_path}', dpi=300)")
                 break
         else:
             # If there's a plot but no save, auto-insert save
             if "plt." in cleaned:
-                plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-                cleaned += f"\nplt.savefig('{plot_path}')"
+                temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
+                cleaned += f"\nplt.savefig('{temp_plot_path}')"
 
         # Create a temporary Python file to execute
         temp_script_path = os.path.join(self._temp_dir.name, f'temp_script_{timestamp}.py')
@@ -571,6 +590,16 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
                 full_output += f"STDOUT:\n{stdout_text}\n"
             if stderr_text:
                 full_output += f"STDERR:\n{stderr_text}\n"
+                
+            # Copy plot from temp to persistent location if it exists
+            if temp_plot_path and os.path.exists(temp_plot_path):
+                import shutil
+                shutil.copy2(temp_plot_path, plot_path)
+                # Initialize the plots list if it doesn't exist
+                if "generated_plots" not in st.session_state:
+                    st.session_state.generated_plots = []
+                # Add the persistent plot path to session state
+                st.session_state.generated_plots.append(plot_path)
 
         except Exception:
             with self._capture_output() as (out_buf, err_buf):
@@ -743,7 +772,19 @@ user_input = st.chat_input("Type your prompt here...")
 # --- Display Full Chat History ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        # Check if this message contains a plot path marker
+        if "PLOT_PATH:" in message["content"]:
+            # Split content into text and plot path
+            parts = message["content"].split("PLOT_PATH:")
+            # Display the text part
+            st.markdown(parts[0])
+            # Display each plot path
+            for plot_info in parts[1:]:
+                plot_path = plot_info.split('\n')[0].strip()
+                if os.path.exists(plot_path):
+                    st.image(plot_path, width=700)
+        else:
+            st.markdown(message["content"])
 
 # --- Process New Prompt ---
 if user_input:
@@ -885,6 +926,21 @@ if user_input:
                     if st.session_state.debug:
                         st.session_state.debug_messages.append(("Execution Output", execution_output))
                     
+                    # If we've reached the end of iterations and we're successful
+                    if not has_errors or current_iteration == max_iterations:
+                        # Add successful execution to the conversation with plot
+                        final_answer = formatted_answer if formatted_answer else last_assistant_message
+                        response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
+                        
+                        # Add plot path marker for rendering in the conversation
+                        if os.path.exists(plot_path):
+                            response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                            
+                        if current_iteration > 0:
+                            response_text = f"After {current_iteration} correction attempts: " + response_text
+                        
+                        # Set the response variable with our constructed text that includes plot
+                        response = Response(content=response_text)
                     
                     # Update last_assistant_message with the formatted answer for next iteration
                     last_assistant_message = formatted_answer
@@ -907,7 +963,14 @@ if user_input:
                         with st.expander("View Successfully Executed Code", expanded=False):
                             st.markdown(last_assistant_message)
                             
-                        response = Response(content=f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```")
+                        # Create a response message that includes the plot path
+                        response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
+                        
+                        # Add plot path marker for rendering in the conversation
+                        if os.path.exists(plot_path):
+                            response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                            
+                        response = Response(content=response_text)
             else:
                 response = Response(content="No code found to execute in the previous messages.")
         else:
