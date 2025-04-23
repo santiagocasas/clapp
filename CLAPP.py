@@ -39,19 +39,21 @@ from typing import Tuple
 import contextlib  # for contextlib.contextmanager
 
 # --- Helper Functions ---
-def save_encrypted_key(encrypted_key):
-    """Save encrypted key to file"""
+def save_encrypted_key(encrypted_key, username):
+    """Save encrypted key to file with username prefix"""
     try:
-        with open(".encrypted_api_key", "w") as f:
+        filename = f"{username}_encrypted_api_key" if username else ".encrypted_api_key"
+        with open(filename, "w") as f:
             f.write(encrypted_key)
         return True
     except Exception as e:
         return False
 
-def load_encrypted_key():
-    """Load encrypted key from file"""
+def load_encrypted_key(username):
+    """Load encrypted key from file with username prefix"""
     try:
-        with open(".encrypted_api_key", "r") as f:
+        filename = f"{username}_encrypted_api_key" if username else ".encrypted_api_key"
+        with open(filename, "r") as f:
             return f.read()
     except FileNotFoundError:
         return None
@@ -90,9 +92,11 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
+st.markdown("# CLAPP: CLASS LLM Agent for Pair Programming")
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.image("images/CLAPP.png", width=500)
+    st.image("images/CLAPP.png", width=400)
+
 
 # --- Load API keys and Assistant IDs from file ---
 keys = read_keys_from_file("keys-IDs.json")
@@ -136,7 +140,8 @@ init_session()
 with st.sidebar:
     st.header("🔐 API & Assistants")
     api_key = st.text_input("1. OpenAI API Key", type="password")
-    user_password = st.text_input("2. Password to encrypt/decrypt API key", type="password")
+    username = st.text_input("2. Username (for saving your API key)", placeholder="Enter your username")
+    user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
     
     # When both API key and password are provided
     if api_key and user_password:
@@ -155,7 +160,7 @@ with st.sidebar:
                 st.session_state.encrypted_key = encrypted_key.decode()
                 
                 # Save to file
-                if save_encrypted_key(encrypted_key.decode()):
+                if save_encrypted_key(encrypted_key.decode(), username):
                     st.success("API key encrypted and saved! ✅")
                 else:
                     st.warning("API key encrypted but couldn't save to file! ⚠️")
@@ -165,7 +170,7 @@ with st.sidebar:
     # Try to load saved API key if password is provided
     elif user_password and not api_key:
         # Try to load from file first
-        encrypted_key = load_encrypted_key()
+        encrypted_key = load_encrypted_key(username)
         if encrypted_key:
             try:
                 # Recreate encryption key
@@ -185,23 +190,50 @@ with st.sidebar:
             st.warning("No saved API key found. Please enter your API key first. 🔑")
 
     # Add clear saved key button
-    if os.path.exists(".encrypted_api_key"):
-        if st.button("🗑️ Clear Saved API Key"):
+    if st.button("🗑️ Clear Saved API Key"):
+        deleted_files = False
+        error_message = ""
+        
+        # Try to delete username-specific file if it exists
+        if username:
+            filename = f"{username}_encrypted_api_key"
+            if os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                    deleted_files = True
+                    st.success(f"Deleted key file for user: {username}")
+                except Exception as e:
+                    error_message += f"Error clearing {filename}: {str(e)}\n"
+        
+        # Also try to delete the default file if it exists
+        if os.path.exists(".encrypted_api_key"):
             try:
                 os.remove(".encrypted_api_key")
-                if "saved_api_key" in st.session_state:
-                    del st.session_state.saved_api_key
-                if "encrypted_key" in st.session_state:
-                    del st.session_state.encrypted_key
-                st.success("Saved API key cleared! 🗑️")
-                st.rerun()
+                deleted_files = True
+                st.success("Deleted default key file")
             except Exception as e:
-                st.error(f"Error clearing saved key: {str(e)}")
+                error_message += f"Error clearing default key file: {str(e)}\n"
+        
+        # Clean up session state
+        if "saved_api_key" in st.session_state:
+            del st.session_state.saved_api_key
+        if "encrypted_key" in st.session_state:
+            del st.session_state.encrypted_key
+        
+        # Show appropriate message
+        if deleted_files:
+            st.info("Session cleared. Reloading page...")
+            time.sleep(1)  # Brief pause so user can see the message
+            st.rerun()
+        elif error_message:
+            st.error(error_message)
+        else:
+            st.warning("No saved API keys found to delete.")
 
     st.session_state.selected_model = st.selectbox(
-        "3. Choose LLM model 🧠",
-        options=["gpt-4o-mini", "gpt-4o", "o3-mini"],
-        index=["gpt-4o-mini", "gpt-4o", "o3-mini"].index(st.session_state.selected_model)
+        "4. Choose LLM model 🧠",
+        options=["gpt-4o-mini", "gpt-4o"],
+        index=["gpt-4o-mini", "gpt-4o"].index(st.session_state.selected_model)
     )
 
 
@@ -279,20 +311,33 @@ with st.sidebar:
                 st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
                 embedding_status.empty()  # Clear the loading message
 
-            # Trigger welcome message once by requesting it from the assistant
+            # Initialize but don't generate welcome message yet
             if not st.session_state.greeted:
-                greeting = st.session_state.llm.invoke([
-                    SystemMessage(content=Initial_Agent_Instructions),
-                    HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
-                ])
-                st.session_state.messages.append({"role": "assistant", "content": greeting.content})
-                st.session_state.greeted = True
-            st.rerun()  # Refresh the page to show the initialized state
+                # Just set the initialized flag, we'll generate the welcome message later
+                st.session_state.llm_initialized = True
+                st.rerun()  # Refresh the page to show the initialized state
 
     st.markdown("---")  # Add a separator for better visual organization
-    # Add CLASS installation and testing buttons
+    
+    # Check if CLASS is already installed
     st.markdown("### 🔧 CLASS Setup")
-    st.text("Install CLASS to enable code execution and plotting capabilities")
+    if st.checkbox("Check CLASS installation status"):
+        try:
+            # Try to import classy
+            import importlib
+            classy_spec = importlib.util.find_spec("classy")
+            if classy_spec is not None:
+                from classy import Class
+                st.success("✅ CLASS is already installed and ready to use!")
+            else:
+                st.error("❌ The 'classy' module is not installed. Please install CLASS using the button below.")
+        except ImportError:
+            st.error("❌ The 'classy' module is not installed. Please install CLASS using the button below.")
+        except Exception as e:
+            st.error(f"❌ Error checking CLASS installation: {str(e)}")
+    
+    # Add CLASS installation and testing buttons
+    st.text("If not installed, install CLASS to enable code execution and plotting")
     if st.button("🔄 Install CLASS"):
         # Show simple initial message
         status_placeholder = st.empty()
@@ -348,6 +393,7 @@ with st.sidebar:
             st.exception(e)  # Show the full exception for debugging
 
     # Add test environment button
+    st.text("If CLASS is installed, test the environment")
     if st.button("🧪 Test CLASS"):
         # Show simple initial message
         status_placeholder = st.empty()
@@ -392,9 +438,6 @@ with st.sidebar:
                 else:
                     status_placeholder.error(f"❌ CLASS test failed with return code: {return_code}")
                 
-                # Display the full output in an expander (not expanded by default)
-                with st.expander("View Full Test Log", expanded=False):
-                    st.code(output_text)
                 
                 # Check for common errors
                 if "ModuleNotFoundError" in output_text or "ImportError" in output_text:
@@ -403,14 +446,17 @@ with st.sidebar:
                 if "CosmoSevereError" in output_text or "CosmoComputationError" in output_text:
                     st.error("❌ CLASS computation error detected.")
                 
-                # Check if the plot was generated
-                plot_path = os.path.join(temp_dir, 'cmb_temperature_spectrum.png')
-                if os.path.exists(plot_path):
-                    # Show the plot if it was generated
-                    st.subheader("Generated CMB Power Spectrum")
-                    st.image(plot_path, use_container_width=True)
-                else:
-                    st.warning("⚠️ No plot was generated")
+                # Display the full output in an expander (not expanded by default)
+                with st.expander("View Full Test Log", expanded=False):
+                    st.code(output_text)
+                    # Check if the plot was generated
+                    plot_path = os.path.join(temp_dir, 'cmb_temperature_spectrum.png')
+                    if os.path.exists(plot_path):
+                        # Show the plot if it was generated
+                        st.subheader("Generated CMB Power Spectrum")
+                        st.image(plot_path, use_container_width=True)
+                    else:
+                        st.warning("⚠️ No plot was generated")
                     
         except Exception as e:
             status_placeholder.error(f"Test failed with exception: {str(e)}")
@@ -488,7 +534,7 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         for line in cleaned.split("\n"):
             if "plt.savefig" in line: 
                 plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-                cleaned = cleaned.replace(line, f"plt.savefig('{plot_path}')")
+                cleaned = cleaned.replace(line, f"plt.savefig('{plot_path}', dpi=300)")
                 break
         else:
             # If there's a plot but no save, auto-insert save
@@ -758,7 +804,7 @@ if user_input:
                     st.success("✅ Plot generated successfully!")
                     # Display the plot
                     #st.image(plot_path, use_container_width=True)
-                    st.image(plot_path, width=500)
+                    st.image(plot_path, width=700)
                 else:
                     st.warning("⚠️ No plot was generated")
                 
@@ -769,8 +815,8 @@ if user_input:
 
                 while has_errors and current_iteration < max_iterations:
                     current_iteration += 1
-                    st.markdown(f"Fixing errors (attempt {current_iteration}/{max_iterations})...")
                     st.error(f"Previous error: {execution_output}")  # Show the actual error message
+                    st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
 
                     # Get new review with error information
                     review_message = f"""
@@ -832,7 +878,7 @@ if user_input:
                     if os.path.exists(plot_path):
                         st.success("✅ Plot generated successfully!")
                         # Display the plot
-                        st.image(plot_path, width=500)
+                        st.image(plot_path, width=700)
                     else:
                         st.warning("⚠️ No plot was generated")
                     
@@ -856,7 +902,12 @@ if user_input:
                         response = Response(content=f"Execution completed with errors:\n{execution_output}")
                     else:
                         st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
-                        response = Response(content=f"Execution completed successfully:\n{execution_output}")
+                        
+                        # Display the final code that was successfully executed
+                        with st.expander("View Successfully Executed Code", expanded=False):
+                            st.markdown(last_assistant_message)
+                            
+                        response = Response(content=f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```")
             else:
                 response = Response(content="No code found to execute in the previous messages.")
         else:
@@ -866,6 +917,37 @@ if user_input:
 
         st.session_state.memory.add_ai_message(response.content)
         st.session_state.messages.append({"role": "assistant", "content": response.content})
+
+# --- Display Welcome Message (outside of sidebar) ---
+# This ensures the welcome message appears in the main content area
+if "llm_initialized" in st.session_state and st.session_state.llm_initialized and not st.session_state.greeted:
+    # Create a chat message container for the welcome message
+    with st.chat_message("assistant"):
+        # Create empty container for streaming
+        welcome_container = st.empty()
+        
+        # Set up the streaming handler
+        welcome_stream_handler = StreamHandler(welcome_container)
+        
+        # Initialize streaming LLM
+        streaming_llm = ChatOpenAI(
+            model_name=st.session_state.selected_model,
+            streaming=True,
+            callbacks=[welcome_stream_handler],
+            openai_api_key=api_key,
+            temperature=0.2
+        )
+        
+        # Generate the streaming welcome message
+        greeting = streaming_llm.invoke([
+            SystemMessage(content=Initial_Agent_Instructions),
+            HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
+        ])
+        
+        # Save the completed message to history
+        st.session_state.messages.append({"role": "assistant", "content": greeting.content})
+        st.session_state.memory.add_ai_message(greeting.content)
+        st.session_state.greeted = True
 
 # --- Debug Info ---
 if st.session_state.debug:
