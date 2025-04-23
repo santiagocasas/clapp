@@ -320,16 +320,19 @@ with st.sidebar:
     st.markdown("### 🔧 CLASS Setup")
     if st.checkbox("Check CLASS installation status"):
         try:
-            # Try to import classy
-            import importlib
-            classy_spec = importlib.util.find_spec("classy")
-            if classy_spec is not None:
-                from classy import Class
+            # Use sys.executable to run a simple test to see if classy can be imported
+            result = subprocess.run(
+                [sys.executable, "-c", "from classy import Class; print('CLASS successfully imported!')"],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
                 st.success("✅ CLASS is already installed and ready to use!")
             else:
                 st.error("❌ The 'classy' module is not installed. Please install CLASS using the button below.")
-        except ImportError:
-            st.error("❌ The 'classy' module is not installed. Please install CLASS using the button below.")
+                if result.stderr:
+                    st.code(result.stderr, language="bash")
         except Exception as e:
             st.error(f"❌ Error checking CLASS installation: {str(e)}")
     
