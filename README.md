@@ -1,70 +1,103 @@
-# CLAPP - CLASS Code Assistant Application
+# CLAPP - CLASS LLM Agent for Pair Programming
 
-CLAPP is a Streamlit application that acts as an AI assistant specialized in the CLASS cosmology code. It uses LangChain and OpenAI models, leveraging Retrieval-Augmented Generation (RAG) with CLASS documentation and code examples to provide informed responses.
+<p align="center">
+  <img src="images/CLAPP.png" alt="CLAPP Logo" width="400"/>
+</p>
+
+CLAPP is a Streamlit application that provides an AI pair programming assistant specialized in the CLASS cosmology code. It uses LangChain and OpenAI models, leveraging Retrieval-Augmented Generation (RAG) with CLASS documentation and code examples to provide informed responses and assist with coding tasks.
 
 ## Features
 
-*   **Conversational AI:** Interact with an AI assistant knowledgeable about CLASS.
-*   **RAG Integration:** Retrieves relevant information from CLASS documentation and code (`./class-data/`) to answer questions accurately.
-*   **Code Execution:** Capable of executing Python code snippets provided in the chat, including generating and displaying plots.
-*   **Multiple Modes:** Offers a "Fast Mode" for quick responses and a "Swarm Mode" for more detailed, multi-agent reviewed answers.
-*   **Secure API Key Handling:** Encrypts and saves your OpenAI API key locally.
-*   **Model Selection:** Choose between different OpenAI models (e.g., GPT-4o, GPT-4o-mini).
+* **Conversational AI:** Interact with an AI assistant knowledgeable about CLASS and cosmology.
+* **CLASS Integration:** Built-in tools to install, test, and use the CLASS cosmological code.
+* **Code Execution:** Executes Python code snippets in real-time, with automatic error detection and correction.
+* **Plotting Support:** Generates and displays cosmological plots from CLASS outputs.
+* **RAG Integration:** Retrieves relevant information from CLASS documentation and code (`./class-data/`) to answer questions accurately.
+* **Multiple Response Modes:** 
+  * **Fast Mode:** Quick responses with good quality (recommended for most uses)
+  * **Swarm Mode:** Multi-agent refined responses for more complex questions (takes longer)
+* **Secure User Management:** Username-based API key storage allows multiple users to securely save encrypted API keys.
+* **Real-time Feedback:** Streams installation and execution progress in real-time.
+* **Model Selection:** Choose between different OpenAI models (GPT-4o, GPT-4o-mini).
 
 ## Setup and Installation
 
-This project uses `uv` for dependency management.
+This project uses conda/mamba for environment management, which is compatible with CLASS installation requirements.
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd clapp
-    ```
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd clapp
+   ```
 
-2.  **Create a virtual environment and install dependencies:**
-    ```bash
-    uv venv
-    uv sync
-    ```
-    This command reads the `uv.lock` file (or `pyproject.toml` if `uv.lock` doesn't exist) and installs the exact dependencies.
+2. **Create a conda environment from the environment.yml file:**
+   ```bash
+   # Using conda
+   conda env create -f environment.yml
+   
+   # Or using mamba (faster)
+   mamba env create -f environment.yml
+   ```
 
-3.  **API Key:**
-    *   You will need an OpenAI API key.
-    *   The application will prompt you for the key and a password to encrypt and store it locally in a `.encrypted_api_key` file. Alternatively, you can set the `OPENAI_API_KEY` environment variable.
+3. **Activate the environment:**
+   ```bash
+   conda activate clapp
+   ```
 
-4.  **CLASS Data:**
-    *   Ensure the `class-data` directory contains the necessary CLASS documentation, code files (.py, .ini, .txt), and potentially PDF documents for the RAG system. The application expects this directory to be present in the root folder.
+4. **API Key:**
+   * You will need an OpenAI API key.
+   * The application allows you to enter a username, API key, and password to encrypt and store it locally.
+   * Keys are saved as `{username}_encrypted_api_key` to allow multiple users.
 
-5.  **Keys and Prompts:**
-    *   Ensure the `keys-IDs.json` file exists (even if empty or containing placeholders if not using specific assistant IDs).
-    *   Ensure the `prompts/` directory exists and contains the necessary instruction files (`class_instructions.txt`, `review_instructions.txt`, etc.).
+5. **CLASS Installation:**
+   * CLAPP includes a built-in CLASS installation button that will install CLASS from source.
+   * Alternatively, you can check if CLASS is already installed using the provided tool.
+
+6. **CLASS Data:**
+   * Ensure the `class-data` directory contains the necessary CLASS documentation, code files (.py, .ini, .txt), and potentially PDF documents for the RAG system.
+
+7. **System Prompts:**
+   * Ensure the `prompts/` directory contains the necessary instruction files (`class_instructions.txt`, `review_instructions.txt`, etc.).
 
 ## Usage
 
-1.  **Activate the virtual environment:**
-    ```bash
-    source .venv/bin/activate
-    ```
-    *(On Windows, use `.venv\Scripts\activate`)*
+1. **Activate the conda environment:**
+   ```bash
+   conda activate clapp
+   ```
 
-2.  **Run the Streamlit application:**
-    ```bash
-    streamlit run CLAPP.py
-    ```
+2. **Run the Streamlit application:**
+   ```bash
+   streamlit run CLAPP.py
+   ```
 
-3.  Open your web browser and navigate to the local URL provided by Streamlit (usually `http://localhost:8501`).
+3. **Setup process:**
+   * Enter your OpenAI API key and optionally a username and password for encryption.
+   * Initialize the application by clicking "Initialize with Selected Model".
+   * Check if CLASS is installed or install it using the provided buttons.
+   * Start chatting with the assistant about CLASS-related questions or cosmology code.
 
-4.  Enter your OpenAI API key and a password when prompted in the sidebar to initialize the application.
+4. **Code execution:**
+   * When the assistant provides code, you can execute it by typing "execute!" in the chat.
+   * The system will run the code, display the output, and show any generated plots.
+   * If errors occur, the system will automatically attempt to fix them.
 
 ## Project Structure
 
-*   `CLAPP.py`: The main Streamlit application script.
-*   `pyproject.toml`: Project metadata and dependencies for `uv`.
-*   `uv.lock`: Pinned versions of all dependencies.
-*   `requirements.txt`: (Potentially outdated) List of dependencies. `uv sync` uses `pyproject.toml` or `uv.lock`.
-*   `README.md`: This file.
-*   `class-data/`: Directory containing data for the RAG system (CLASS code, docs, etc.).
-*   `prompts/`: Directory containing system prompts for the AI agents.
-*   `images/`: Contains images used in the app interface.
-*   `.encrypted_api_key`: Stores the encrypted OpenAI API key (generated on first run).
-*   `keys-IDs.json`: Configuration file (potentially for API keys or assistant IDs, structure depends on specific use).
+* `CLAPP.py`: The main Streamlit application script.
+* `install_classy.sh`: Script to install CLASS from source.
+* `test_classy.py`: Script to test CLASS installation and functionality.
+* `environment.yml`: Conda environment specification with all required dependencies.
+* `class-data/`: Directory containing data for the RAG system (CLASS code, docs, etc.).
+* `prompts/`: Directory containing system prompts for the AI agents.
+* `images/`: Contains images used in the app interface, including the CLAPP logo.
+* `{username}_encrypted_api_key`: Stores the encrypted OpenAI API keys for each user.
+
+## Working with CLASS
+
+CLAPP allows you to:
+
+1. **Learn about CLASS**: Ask questions about CLASS cosmology code features, parameters, and usage.
+2. **Develop cosmology code**: Get help writing code that uses CLASS for cosmological calculations.
+3. **Debug and fix errors**: Get assistance with error messages and issues in your CLASS code.
+4. **Visualize results**: Generate and view plots of cosmological data.
