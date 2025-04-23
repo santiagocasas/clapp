@@ -98,9 +98,6 @@ with col2:
     st.image("images/CLAPP.png", width=400)
 
 
-# --- Load API keys and Assistant IDs from file ---
-keys = read_keys_from_file("keys-IDs.json")
-
 # New prompts for the swarm
 Initial_Agent_Instructions = read_prompt_from_file("prompts/class_instructions.txt") # Reuse or adapt class_instructions
 Review_Agent_Instructions = read_prompt_from_file("prompts/review_instructions.txt") # Adapt rating_instructions
