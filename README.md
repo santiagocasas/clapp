@@ -10,9 +10,9 @@ CLAPP is a Streamlit application that provides an AI pair programming assistant 
 
 * Santiago Casas
 * Christian Fidler
-* Boris Bolliet
 * Julien Lesgourgues
-* With ideas from: Francisco Villaescusa-Navarro and the [CAMELS-Agent-App](https://github.com/franciscovillaescusa/CAMELS_Agents)
+* With contributions from: Boris Bolliet & Francisco Villaescusa-Navarro
+* inspired by the [CAMELS-Agent-App](https://github.com/franciscovillaescusa/CAMELS_Agents)
 
 ## Features
 
