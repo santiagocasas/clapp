@@ -25,6 +25,17 @@ from typing import Annotated
 
 
 from autogen import ConversableAgent, LLMConfig, UpdateSystemMessage
+
+from autogen.agentchat import initiate_group_chat
+from autogen.agentchat.group.patterns import AutoPattern
+from autogen.agentchat.group import ReplyResult, AgentNameTarget
+from autogen.agentchat.group import AgentTarget, RevertToUserTarget, TerminateTarget, NestedChatTarget
+from autogen.agentchat.group import OnCondition, StringLLMCondition
+from autogen.agentchat.group import OnContextCondition, ExpressionContextCondition, ContextExpression
+from typing import Any, Annotated
+from autogen.agentchat.group import ContextVariables
+
+
 import tempfile
 from autogen.coding import LocalCommandLineCodeExecutor, CodeBlock
 import matplotlib
@@ -487,15 +498,15 @@ def build_messages(context, question, system):
     human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}")
     return [system_msg] + st.session_state.memory.messages + [human_msg]
 
-def build_messages_rating(context, question, answer, system):
-    system_msg = SystemMessage(content=system)
-    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}")
-    return [system_msg] + st.session_state.memory.messages + [human_msg]
+#def build_messages_rating(context, question, answer, system):
+#    system_msg = SystemMessage(content=system)
+#    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}")
+#    return [system_msg] + st.session_state.memory.messages + [human_msg]
 
-def build_messages_refinement(context, question, answer, feedback, system):
-    system_msg = SystemMessage(content=system)
-    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}\n\nReviewer Feedback:\n{feedback}")
-    return [system_msg] + st.session_state.memory.messages + [human_msg]
+#def build_messages_refinement(context, question, answer, feedback, system):
+#    system_msg = SystemMessage(content=system)
+#    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}\n\nReviewer Feedback:\n{feedback}")
+#    return [system_msg] + st.session_state.memory.messages + [human_msg]
 
 def format_memory_messages(memory_messages):
     formatted = ""
@@ -649,20 +660,57 @@ code_execution_config = LLMConfig(
     api_key=api_key,
 )
 
+def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"],feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
+                  , rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], context_variables: ContextVariables) -> ReplyResult:
+    """Review the reply of the Ai Agent to the user prompt with respect to correctness, clarity and relevance for the user prompt"""
+    
+
+    context_variables["best_answer"] = reply
+    context_variables["feedback"] = feedback
+    context_variables["rating"] = rating
+    context_variables["revisions"] += 1
+
+
+    #st.markdown("Reviewing draft...")
+
+    #if st.session_state.debug:
+
+    #    st.session_state.debug_messages.append(("Orignal Answer", reply))
+    #    st.session_state.debug_messages.append(("Review Feedback", feedback))
+
+    
+    if rating <= 7 and context_variables["revisions"] < 3:
+
+        return ReplyResult(
+            context_variables=context_variables,
+            target=AgentTarget(initial_agent),
+            message=f'Please revise your answer considering this feedback {feedback}',
+        )
+    else:
+        #st.markdown("Formatting final answer...")
+
+        return ReplyResult(
+            context_variables=context_variables,
+            target=AgentTarget(formatting_agent),
+            message=f'Please formatt the following reply: {reply}',
+        )
+
 # Global agent instances with updated system messages
 initial_agent = ConversableAgent(
     name="initial_agent",
-    system_message=f"""
-{Initial_Agent_Instructions}""",
+    system_message=Initial_Agent_Instructions,
     human_input_mode="NEVER",
     llm_config=initial_config
 )
 
 review_agent = ConversableAgent(
-    name="review_agent",
-    system_message=f"""{Review_Agent_Instructions}""",
+    name="review_agent",    
+    update_agent_state_before_reply=[
+        UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+    ],
     human_input_mode="NEVER",
-    llm_config=review_config
+    llm_config=review_config,
+    functions=review_reply,
 )
 
 # typo_agent = ConversableAgent(
@@ -682,11 +730,19 @@ review_agent = ConversableAgent(
 # # )
 
 formatting_agent = ConversableAgent(
-    name="formatting_agent",
-    system_message="""{Formatting_Agent_Instructions}""",
+    name="formatting_agent",    
+    update_agent_state_before_reply=[
+        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
+    ],
     human_input_mode="NEVER",
     llm_config=formatting_config
 )
+
+# no other handoffs needed as rest will be determined by function call
+initial_agent.handoffs.set_after_work(AgentTarget(review_agent))
+formatting_agent.handoffs.set_after_work(TerminateTarget())
+
+
 
 code_executor = ConversableAgent(
     name="code_executor",
@@ -703,35 +759,59 @@ def call_ai(context, user_input):
         response = st.session_state.llm.invoke(messages)
         return Response(content=response.content)
     else:
-        # New Swarm Workflow for detailed mode
-        st.markdown("Thinking (Swarm Mode)... ")
+        # New Groupchat Workflow for detailed mode
+        st.markdown("Thinking (Deep Thought Mode)... ")
 
         # Format the conversation history for context
         conversation_history = format_memory_messages(st.session_state.memory.messages)
 
-        # 1. Initial Agent generates the draft
-        st.markdown("Generating initial draft...")
-        chat_result_1 = initial_agent.initiate_chat(
-            recipient=initial_agent,
-            message=f"Conversation history:\n{conversation_history}\n\nContext from documents: {context}\n\nUser question: {user_input}",
-            max_turns=1,
-            summary_method="last_msg"
+        shared_context = ContextVariables(data =  {
+            "user_prompt": user_input,
+            "best_answer": "",
+            "feedback": "",
+            "rating": None,
+            "revisions": 0,
+        })
+
+        pattern = AutoPattern(
+            initial_agent=initial_agent,  # Agent that starts the conversation
+            agents=[initial_agent,review_agent,formatting_agent],
+            group_manager_args={"llm_config": initial_config},
+            context_variables=shared_context,
         )
-        draft_answer = chat_result_1.summary
-        if st.session_state.debug:
-            st.session_state.debug_messages.append(("Initial Draft", draft_answer))
+
+
+        st.markdown("Generating answer...")
+
+        result, context_variables, last_agent = initiate_group_chat(
+            pattern=pattern,
+            messages=f"Context from documents: {context}\n\nConversation history:\n{conversation_history}\n\nUser question: {user_input}",
+            max_rounds=10,
+        )
+
+        # 1. Initial Agent generates the draft
+        #st.markdown("Generating initial draft...")
+        #chat_result_1 = initial_agent.initiate_chat(
+        #    recipient=initial_agent,
+        #    message=f"Conversation history:\n{conversation_history}\n\nContext from documents: {context}\n\nUser question: {user_input}",
+        #    max_turns=1,
+        #    summary_method="last_msg"
+        #)
+        #draft_answer = chat_result_1.summary
+        #if st.session_state.debug:
+        #    st.session_state.debug_messages.append(("Initial Draft", draft_answer))
 
         # 2. Review Agent critiques the draft
-        st.markdown("Reviewing draft...")
-        chat_result_2 = review_agent.initiate_chat(
-            recipient=review_agent,
-            message=f"Conversation history:\n{conversation_history}\n\nPlease review this draft answer:\n{draft_answer}",
-            max_turns=1,
-            summary_method="last_msg"
-        )
-        review_feedback = chat_result_2.summary
-        if st.session_state.debug:
-            st.session_state.debug_messages.append(("Review Feedback", review_feedback))
+        #st.markdown("Reviewing draft...")
+        #chat_result_2 = review_agent.initiate_chat(
+        #    recipient=review_agent,
+        #    message=f"Conversation history:\n{conversation_history}\n\nPlease review this draft answer:\n{draft_answer}",
+        #    max_turns=1,
+        #    summary_method="last_msg"
+        #)
+        #review_feedback = chat_result_2.summary
+        #if st.session_state.debug:
+        #    st.session_state.debug_messages.append(("Review Feedback", review_feedback))
 
         # # 3. Typo Agent corrects the draft
         # st.markdown("Checking for typos...")
@@ -745,17 +825,22 @@ def call_ai(context, user_input):
         # if st.session_state.debug: st.text(f"Typo-Corrected Answer:\n{typo_corrected_answer}")
 
         # 4. Formatting Agent formats the final answer
-        st.markdown("Formatting final answer...")
-        chat_result_4 = formatting_agent.initiate_chat(
-            recipient=formatting_agent,
-            message=f"""Please format this answer while preserving any code blocks:
-                {draft_answer}""",
-            max_turns=1,
-            summary_method="last_msg"
-        )
-        formatted_answer = chat_result_4.summary
+        #st.markdown("Formatting final answer...")
+        #chat_result_4 = formatting_agent.initiate_chat(
+        #    recipient=formatting_agent,
+        #    message=f"""Please format this answer while preserving any code blocks:
+        #        {draft_answer}""",
+        #    max_turns=1,
+        #    summary_method="last_msg"
+        #)
+        #formatted_answer = chat_result_4.summary
+        
+        formatted_answer = shared_context["best_answer"]
+
         if st.session_state.debug:
             st.session_state.debug_messages.append(("Formatted Answer", formatted_answer))
+            st.session_state.debug_messages.append(("Feedback", shared_context["feedback"]))
+
 
         # Check if the answer contains code
         if "```python" in formatted_answer:
