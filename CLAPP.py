@@ -17,8 +17,9 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.documents import Document
-
+from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.callbacks.base import BaseCallbackHandler
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from pydantic import BaseModel, Field
 from typing import Annotated
@@ -35,6 +36,7 @@ from autogen.agentchat.group import OnContextCondition, ExpressionContextConditi
 from typing import Any, Annotated
 from autogen.agentchat.group import ContextVariables
 
+import google.generativeai as genai
 
 import tempfile
 from autogen.coding import LocalCommandLineCodeExecutor, CodeBlock
@@ -150,6 +152,12 @@ with st.sidebar:
     api_key = st.text_input("1. OpenAI API Key", type="password")
     username = st.text_input("2. Username (for saving your API key)", placeholder="Enter your username")
     user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
+
+
+    api_key_gai = st.text_input("1. Gemini API Key", type="password")
+    if api_key_gai:
+        st.session_state.saved_api_key = api_key_gai
+
     
     # When both API key and password are provided
     if api_key and user_password:
@@ -240,8 +248,8 @@ with st.sidebar:
 
     st.session_state.selected_model = st.selectbox(
         "4. Choose LLM model 🧠",
-        options=["gpt-4o-mini", "gpt-4o"],
-        index=["gpt-4o-mini", "gpt-4o"].index(st.session_state.selected_model)
+        options=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"],
+        index=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"].index(st.session_state.selected_model)
     )
 
 
@@ -268,23 +276,44 @@ with st.sidebar:
             st.caption("🎯 Swarm mode, more refined responses (may take longer)")
     
 
-    if api_key:
+    if api_key or api_key_gai:
         os.environ["OPENAI_API_KEY"] = api_key
+
+        os.environ["GEMINI_API_KEY"] = api_key_gai
         
         # Initialize only after model is selected
         if st.button("🚀 Initialize with Selected Model"):
             # First initialization without streaming
-            st.session_state.llm = ChatOpenAI(
+
+            if st.session_state.selected_model in ["gemini-2.0-flash","gemimi-1.5-flash"]:
+
+
+                st.session_state.llm = ChatGoogleGenerativeAI(
+                    model=st.session_state.selected_model,
+                    google_api_key=api_key_gai,
+                    temperature=1.0,
+                    convert_system_message_to_human=True  # Important for compatibility
+                )
+
+
+            else:
+                st.session_state.llm = ChatOpenAI(
                     model_name=st.session_state.selected_model,
                     openai_api_key=api_key,
                     temperature=1.0
-            )
+                )
 
             if st.session_state.vector_store is None:
                 embedding_status = st.empty()
                 embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-                embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+                #embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
                 
+
+                embeddings = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
+                )
+
+
                 # Get all files from class-data directory
                 all_docs = []
                 for filename in os.listdir("./class-data"):
@@ -893,15 +922,33 @@ if user_input:
     with st.chat_message("assistant"):
         stream_box = st.empty()
         stream_handler = StreamHandler(stream_box)
-
+        
         # Second initialization with streaming
-        st.session_state.llm = ChatOpenAI(
-                model_name=st.session_state.selected_model,
-                streaming=True,
-                callbacks=[stream_handler],
-                openai_api_key=api_key,
-                temperature=0.2
-        )
+       
+
+        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+
+
+            st.session_state.llm = ChatGoogleGenerativeAI(
+                    model=st.session_state.selected_model,
+                    streaming=True,
+                    callbacks=[stream_handler],
+                    google_api_key=api_key_gai,
+                    temperature=0.2,
+                    convert_system_message_to_human=True  # Important for compatibility
+            )
+
+
+        else:
+            st.session_state.llm = ChatOpenAI(
+                    model_name=st.session_state.selected_model,
+                    streaming=True,
+                    callbacks=[stream_handler],
+                    openai_api_key=api_key,
+                    temperature=0.2
+            )
+
+       
 
         # Check if this is an execution request
         if user_input.strip().lower() == "execute!":
@@ -1076,15 +1123,30 @@ if "llm_initialized" in st.session_state and st.session_state.llm_initialized an
         
         # Set up the streaming handler
         welcome_stream_handler = StreamHandler(welcome_container)
+
+
+        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+
+            #streaming_llm = genai.GenerativeModel(model_name=st.session_state.selected_model)
+
+            streaming_llm = ChatGoogleGenerativeAI(
+                model=st.session_state.selected_model,
+                google_api_key=api_key_gai,
+                streaming=True,
+                callbacks=[welcome_stream_handler],
+                temperature=0.2,
+                convert_system_message_to_human=True  # Important for compatibility
+            )
         
+        else:
         # Initialize streaming LLM
-        streaming_llm = ChatOpenAI(
-            model_name=st.session_state.selected_model,
-            streaming=True,
-            callbacks=[welcome_stream_handler],
-            openai_api_key=api_key,
-            temperature=0.2
-        )
+            streaming_llm = ChatOpenAI(
+                model_name=st.session_state.selected_model,
+                streaming=True,
+                callbacks=[welcome_stream_handler],
+                openai_api_key=api_key,
+                temperature=0.2
+            )
         
         # Generate the streaming welcome message
         greeting = streaming_llm.invoke([
