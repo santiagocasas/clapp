@@ -131,6 +131,10 @@ def init_session():
         st.session_state.greeted = False
     if "debug_messages" not in st.session_state:
         st.session_state.debug_messages = []
+    if "saved_api_key" not in st.session_state:
+        st.session_state.saved_api_key = None
+    if "saved_api_key_gai" not in st.session_state:
+        st.session_state.saved_api_key_gai = None
 
 
 init_session()
@@ -141,43 +145,75 @@ init_session()
 with st.sidebar:
     st.header("🔐 API & Assistants")
     api_key = st.text_input("1. OpenAI API Key", type="password")
+
+    api_key_gai = st.text_input("1. Gemini API Key", type="password")
+    
     username = st.text_input("2. Username (for saving your API key)", placeholder="Enter your username")
     user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
 
 
-    api_key_gai = st.text_input("1. Gemini API Key", type="password")
-    if api_key_gai:
-        st.session_state.saved_api_key = api_key_gai
+    if st.session_state.vector_store is None:
+        embedding_status = st.empty()
+        
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
+        )
 
+        index_path = "my_faiss_index"
+
+        # Check if the FAISS index directory exists and contains the index file
+        if os.path.exists(os.path.join(index_path, "index.faiss")):
+            embedding_status.info("🔄 Loading existing FAISS index...")
+            st.session_state.vector_store = FAISS.load_local(
+                        folder_path=index_path,
+                        embeddings=embeddings,
+                        allow_dangerous_deserialization=True
+            )
+            embedding_status.info("🔄 RAG ready")
+
+        else:
+            embedding_status.info("🔄 No stored embedding found, please genereate one")
+
+
+   
     
     # When both API key and password are provided
-    if api_key and user_password:
+    if (api_key or api_key_gai) and user_password:
         # Create encryption key from password
         key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
         fernet = Fernet(key)
         
         # If this is a new API key, encrypt and save it
-        if "saved_api_key" not in st.session_state or api_key != st.session_state.saved_api_key:
+        if api_key != st.session_state.saved_api_key or api_key_gai != st.session_state.saved_api_key_gai:
             try:
                 # Encrypt the API key
                 encrypted_key = fernet.encrypt(api_key.encode())
-                
+                encrypted_key_gai = fernet.encrypt(api_key_gai.encode())
                 # Save to session state and file
+
                 st.session_state.saved_api_key = api_key
+                st.session_state.saved_api_key_gai = api_key_gai
+                
                 st.session_state.encrypted_key = encrypted_key.decode()
+                st.session_state.encrypted_key_gai = encrypted_key_gai.decode()
                 
                 # Save to file
                 if save_encrypted_key(encrypted_key.decode(), username):
                     st.success("API key encrypted and saved! ✅")
                 else:
                     st.warning("API key encrypted but couldn't save to file! ⚠️")
+                if save_encrypted_key(encrypted_key_gai.decode(), username+'_gai'):
+                    st.success("API Gemini key encrypted and saved! ✅")
+                else:
+                    st.warning("API Gemini key encrypted but couldn't save to file! ⚠️")
             except Exception as e:
                 st.error(f"Error saving API key: {str(e)}")
     
     # Try to load saved API key if password is provided
-    elif user_password and not api_key:
+    elif user_password and (not api_key or not api_key_gai):
         # Try to load from file first
         encrypted_key = load_encrypted_key(username)
+        encrypted_key_gai = load_encrypted_key(username+'_gai')
         if encrypted_key:
             try:
                 # Recreate encryption key
@@ -186,10 +222,12 @@ with st.sidebar:
                 
                 # Decrypt the saved key
                 decrypted_key = fernet.decrypt(encrypted_key.encode()).decode()
-                
+                decrypted_key_gai = fernet.decrypt(encrypted_key_gai.encode()).decode()
                 # Set the API key
                 api_key = decrypted_key
+                api_key_gai = decrypted_key_gai
                 st.session_state.saved_api_key = api_key
+                st.session_state.saved_api_key_gai = api_key_gai
                 st.success("API key loaded successfully! 🔑")
             except Exception as e:
                 st.error("Failed to decrypt API key. Wrong password? 🔒")
@@ -211,6 +249,15 @@ with st.sidebar:
                     st.success(f"Deleted key file for user: {username}")
                 except Exception as e:
                     error_message += f"Error clearing {filename}: {str(e)}\n"
+                    filename = f"{username}_encrypted_api_key"
+            filename = f"{username}_gai_encrypted_api_key"
+            if os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                    deleted_files = True
+                    st.success(f"Deleted key file for user: {username}")
+                except Exception as e:
+                    error_message += f"Error clearing {filename}: {str(e)}\n"
         
         # Also try to delete the default file if it exists
         if os.path.exists(".encrypted_api_key"):
@@ -220,12 +267,6 @@ with st.sidebar:
                 st.success("Deleted default key file")
             except Exception as e:
                 error_message += f"Error clearing default key file: {str(e)}\n"
-        
-        # Clean up session state
-        if "saved_api_key" in st.session_state:
-            del st.session_state.saved_api_key
-        if "encrypted_key" in st.session_state:
-            del st.session_state.encrypted_key
         
         # Show appropriate message
         if deleted_files:
@@ -255,6 +296,12 @@ with st.sidebar:
         st.session_state.memory = ChatMessageHistory()
         st.session_state.previous_model = st.session_state.selected_model
         st.info("Model changed! Chat has been reset.")
+    if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+        if api_key_gai:
+            st.session_state.llm_initialized = True        
+    elif api_key:
+        st.session_state.llm_initialized = True
+        
 
     st.write("### Response Mode")
     col1, col2 = st.columns([1, 2])
@@ -267,81 +314,63 @@ with st.sidebar:
             st.caption("🎯 Multi-agent setup, more refined responses (takes longer)")
     
 
-    if api_key or api_key_gai:
-        os.environ["OPENAI_API_KEY"] = api_key
 
-        os.environ["GEMINI_API_KEY"] = api_key_gai
         
         # Initialize only after model is selected
-        if st.button("🚀 Initialize with Selected Model"):
-            # First initialization without streaming
+    if st.button("🚀 Generate embedding"):
+        # First initialization without streaming
 
-           
+        
 
-            if st.session_state.vector_store is None:
-                embedding_status = st.empty()
-                embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-                #embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-                
+        embedding_status = st.empty()
+        embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+        #embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+        
 
-                embeddings = HuggingFaceEmbeddings(
-                    model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
-                )
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
+        )
 
-                index_path = "my_faiss_index"
+        index_path = "my_faiss_index"
 
-                # Check if the FAISS index directory exists and contains the index file
-                if os.path.exists(os.path.join(index_path, "index.faiss")):
-                    embedding_status.info("🔄 Loading existing FAISS index...")
-                    st.session_state.vector_store = FAISS.load_local(
-                        folder_path=index_path,
-                        embeddings=embeddings,
-                        allow_dangerous_deserialization=True
-                    )
+        # Get all files from class-data directory
+        all_docs = []
+        for filename in os.listdir("./class-data"):
+            file_path = os.path.join("./class-data", filename)
+            
+            if filename.endswith('.pdf'):
+                # Handle PDF files
+                loader = PyPDFLoader(file_path)
+                docs = loader.load()
+                all_docs.extend(docs)
+            elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
+                # Handle text and Python files
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                    # Create a document with metadata
+                    all_docs.append(Document(
+                        page_content=text,
+                        metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
+                    ))
 
-                else:
+        # Split and process all documents
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        def sanitize(documents):
+            for doc in documents:
+                doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+            return documents
+            
+        splits = text_splitter.split_documents(all_docs)
+        splits = sanitize(splits)
+        
+        # Create vector store from all documents
+        st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+        embedding_status.empty()  # Clear the loading message
 
-                    # Get all files from class-data directory
-                    all_docs = []
-                    for filename in os.listdir("./class-data"):
-                        file_path = os.path.join("./class-data", filename)
-                        
-                        if filename.endswith('.pdf'):
-                            # Handle PDF files
-                            loader = PyPDFLoader(file_path)
-                            docs = loader.load()
-                            all_docs.extend(docs)
-                        elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
-                            # Handle text and Python files
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                text = f.read()
-                                # Create a document with metadata
-                                all_docs.append(Document(
-                                    page_content=text,
-                                    metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
-                                ))
+        st.session_state.vector_store.save_local("my_faiss_index")
 
-                    # Split and process all documents
-                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                    def sanitize(documents):
-                        for doc in documents:
-                            doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                        return documents
-                        
-                    splits = text_splitter.split_documents(all_docs)
-                    splits = sanitize(splits)
-                    
-                    # Create vector store from all documents
-                    st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-                    embedding_status.empty()  # Clear the loading message
 
-                    st.session_state.vector_store.save_local("my_faiss_index")
 
-            # Initialize but don't generate welcome message yet
-            if not st.session_state.greeted:
-                # Just set the initialized flag, we'll generate the welcome message later
-                st.session_state.llm_initialized = True
-                st.rerun()  # Refresh the page to show the initialized state
 
     st.markdown("---")  # Add a separator for better visual organization
     
