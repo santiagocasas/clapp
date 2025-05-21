@@ -9,15 +9,15 @@ import base64
 import getpass
 from cryptography.fernet import Fernet
 from langchain_openai import ChatOpenAI
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.documents import Document
-from langchain.embeddings import HuggingFaceEmbeddings
+#from langchain.embeddings import HuggingFaceEmbeddings
+
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -31,12 +31,10 @@ from autogen.agentchat import initiate_group_chat
 from autogen.agentchat.group.patterns import AutoPattern
 from autogen.agentchat.group import ReplyResult, AgentNameTarget
 from autogen.agentchat.group import AgentTarget, RevertToUserTarget, TerminateTarget, NestedChatTarget
-from autogen.agentchat.group import OnCondition, StringLLMCondition
-from autogen.agentchat.group import OnContextCondition, ExpressionContextCondition, ContextExpression
-from typing import Any, Annotated
+from typing import Annotated
 from autogen.agentchat.group import ContextVariables
 
-import google.generativeai as genai
+#import google.generativeai as genai
 
 import tempfile
 from autogen.coding import LocalCommandLineCodeExecutor, CodeBlock
@@ -84,10 +82,6 @@ class Response:
         self.content = content
 
 
-class Feedback(BaseModel):
-    grade: Annotated[int, Field(description="Score from 1 to 10")]
-    improvement_instructions: Annotated[str, Field(description="Advice on how to improve the reply")]
-
 class StreamHandler(BaseCallbackHandler):
     def __init__(self, container):
         self.container = container
@@ -114,7 +108,6 @@ with col2:
 # New prompts for the swarm
 Initial_Agent_Instructions = read_prompt_from_file("prompts/class_instructions.txt") # Reuse or adapt class_instructions
 Review_Agent_Instructions = read_prompt_from_file("prompts/review_instructions.txt") # Adapt rating_instructions
-#Typo_Agent_Instructions = read_prompt_from_file("prompts/typo_instructions.txt")   # New prompt file
 Formatting_Agent_Instructions = read_prompt_from_file("prompts/formatting_instructions.txt") # New prompt file
 Code_Execution_Agent_Instructions = read_prompt_from_file("prompts/codeexecutor_instructions.txt") # New prompt file
 
@@ -126,8 +119,6 @@ def init_session():
         st.session_state.debug = False
     if "llm" not in st.session_state:
         st.session_state.llm = None
-    if "llmBG" not in st.session_state:
-        st.session_state.llmBG = None
     if "memory" not in st.session_state:
         st.session_state.memory = ChatMessageHistory()
     if "vector_store" not in st.session_state:
@@ -258,12 +249,12 @@ with st.sidebar:
         st.session_state.previous_model = st.session_state.selected_model
     elif st.session_state.previous_model != st.session_state.selected_model:
         # Reset relevant state variables when model changes
-        st.session_state.vector_store = None
+        #st.session_state.vector_store = None
         st.session_state.greeted = False
         st.session_state.messages = []
         st.session_state.memory = ChatMessageHistory()
         st.session_state.previous_model = st.session_state.selected_model
-        st.info("Model changed! Please initialize again with the new model.")
+        st.info("Model changed! Chat has been reset.")
 
     st.write("### Response Mode")
     col1, col2 = st.columns([1, 2])
@@ -273,7 +264,7 @@ with st.sidebar:
         if mode_is_fast:
             st.caption("✨ Quick responses with good quality (recommended for most uses)")
         else:
-            st.caption("🎯 Swarm mode, more refined responses (may take longer)")
+            st.caption("🎯 Multi-agent setup, more refined responses (takes longer)")
     
 
     if api_key or api_key_gai:
@@ -285,23 +276,7 @@ with st.sidebar:
         if st.button("🚀 Initialize with Selected Model"):
             # First initialization without streaming
 
-            if st.session_state.selected_model in ["gemini-2.0-flash","gemimi-1.5-flash"]:
-
-
-                st.session_state.llm = ChatGoogleGenerativeAI(
-                    model=st.session_state.selected_model,
-                    google_api_key=api_key_gai,
-                    temperature=1.0,
-                    convert_system_message_to_human=True  # Important for compatibility
-                )
-
-
-            else:
-                st.session_state.llm = ChatOpenAI(
-                    model_name=st.session_state.selected_model,
-                    openai_api_key=api_key,
-                    temperature=1.0
-                )
+           
 
             if st.session_state.vector_store is None:
                 embedding_status = st.empty()
@@ -313,40 +288,54 @@ with st.sidebar:
                     model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
                 )
 
+                index_path = "my_faiss_index"
 
-                # Get all files from class-data directory
-                all_docs = []
-                for filename in os.listdir("./class-data"):
-                    file_path = os.path.join("./class-data", filename)
-                    
-                    if filename.endswith('.pdf'):
-                        # Handle PDF files
-                        loader = PyPDFLoader(file_path)
-                        docs = loader.load()
-                        all_docs.extend(docs)
-                    elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
-                        # Handle text and Python files
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            text = f.read()
-                            # Create a document with metadata
-                            all_docs.append(Document(
-                                page_content=text,
-                                metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
-                            ))
+                # Check if the FAISS index directory exists and contains the index file
+                if os.path.exists(os.path.join(index_path, "index.faiss")):
+                    embedding_status.info("🔄 Loading existing FAISS index...")
+                    st.session_state.vector_store = FAISS.load_local(
+                        folder_path=index_path,
+                        embeddings=embeddings,
+                        allow_dangerous_deserialization=True
+                    )
 
-                # Split and process all documents
-                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                def sanitize(documents):
-                    for doc in documents:
-                        doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                    return documents
+                else:
+
+                    # Get all files from class-data directory
+                    all_docs = []
+                    for filename in os.listdir("./class-data"):
+                        file_path = os.path.join("./class-data", filename)
+                        
+                        if filename.endswith('.pdf'):
+                            # Handle PDF files
+                            loader = PyPDFLoader(file_path)
+                            docs = loader.load()
+                            all_docs.extend(docs)
+                        elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
+                            # Handle text and Python files
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                text = f.read()
+                                # Create a document with metadata
+                                all_docs.append(Document(
+                                    page_content=text,
+                                    metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
+                                ))
+
+                    # Split and process all documents
+                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                    def sanitize(documents):
+                        for doc in documents:
+                            doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                        return documents
+                        
+                    splits = text_splitter.split_documents(all_docs)
+                    splits = sanitize(splits)
                     
-                splits = text_splitter.split_documents(all_docs)
-                splits = sanitize(splits)
-                
-                # Create vector store from all documents
-                st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-                embedding_status.empty()  # Clear the loading message
+                    # Create vector store from all documents
+                    st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+                    embedding_status.empty()  # Clear the loading message
+
+                    st.session_state.vector_store.save_local("my_faiss_index")
 
             # Initialize but don't generate welcome message yet
             if not st.session_state.greeted:
@@ -653,6 +642,8 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
 executor = PlotAwareExecutor(timeout=10)
 
 # Global agent configurations
+
+
 initial_config = LLMConfig(
     api_type="openai", 
     model=st.session_state.selected_model,
@@ -663,22 +654,14 @@ initial_config = LLMConfig(
 review_config = LLMConfig(
     api_type="openai", 
     model=st.session_state.selected_model, 
-    temperature=0.7,  # Higher temperature for creative reviews
+    temperature=0.5,  # Higher temperature for creative reviews
     api_key=api_key,
-    response_format=Feedback
-)
-
-# typo_config = LLMConfig(
-#     api_type="openai", 
-#     model=st.session_state.selected_model, 
-#     temperature=0.1,  # Very low temperature for precise code corrections
-#     api_key=api_key,
-# )
+    )
 
 formatting_config = LLMConfig(
     api_type="openai", 
     model=st.session_state.selected_model, 
-    temperature=0.3,  # Moderate temperature for formatting
+    temperature=0.1,  # Moderate temperature for formatting
     api_key=api_key,
 )
 
@@ -687,6 +670,34 @@ code_execution_config = LLMConfig(
     model=st.session_state.selected_model, 
     temperature=0.1,  # Very low temperature for code execution
     api_key=api_key,
+)
+
+initial_config_gai = LLMConfig(
+    api_type="google", 
+    model=st.session_state.selected_model,
+    temperature=0.2,  # Low temperature for consistent initial responses
+    api_key=api_key_gai,
+)
+
+review_config_gai = LLMConfig(
+    api_type="google", 
+    model=st.session_state.selected_model, 
+    temperature=0.5,  # Higher temperature for creative reviews
+    api_key=api_key_gai,
+)
+
+formatting_config_gai = LLMConfig(
+    api_type="google", 
+    model=st.session_state.selected_model, 
+    temperature=0.1,  # Moderate temperature for formatting
+    api_key=api_key_gai,
+)
+
+code_execution_config_gai = LLMConfig(
+    api_type="google", 
+    model=st.session_state.selected_model, 
+    temperature=0.1,  # Very low temperature for code execution
+    api_key=api_key_gai,
 )
 
 def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"],feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
@@ -708,11 +719,11 @@ def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"]
     #    st.session_state.debug_messages.append(("Review Feedback", feedback))
 
     
-    if rating <= 7 and context_variables["revisions"] < 3:
+    if rating < 7 and context_variables["revisions"] < 3:
 
         return ReplyResult(
             context_variables=context_variables,
-            target=AgentTarget(initial_agent),
+            target=AgentNameTarget("initial_agent"),
             message=f'Please revise your answer considering this feedback {feedback}',
         )
     else:
@@ -720,7 +731,7 @@ def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"]
 
         return ReplyResult(
             context_variables=context_variables,
-            target=AgentTarget(formatting_agent),
+            target=AgentNameTarget("formatting_agent"),
             message=f'Please formatt the following reply: {reply}',
         )
 
@@ -742,21 +753,6 @@ review_agent = ConversableAgent(
     functions=review_reply,
 )
 
-# typo_agent = ConversableAgent(
-#     name="typo_agent",
-#     system_message=f"""You are the typo and code correction agent. Your task is to:
-# 1. Fix any typos or grammatical errors
-# 2. Correct any code issues
-# 3. Ensure proper formatting
-# 4. Maintain the original meaning while improving clarity
-# 5. Verify plots are saved to disk (not using show())
-# 6. PRESERVE all code blocks exactly as they are unless there are actual errors
-# 7. If no changes are needed, keep the original code blocks unchanged
-
-# # {Typo_Agent_Instructions}""",
-# #     human_input_mode="NEVER",
-# #     llm_config=typo_config
-# # )
 
 formatting_agent = ConversableAgent(
     name="formatting_agent",    
@@ -780,16 +776,70 @@ code_executor = ConversableAgent(
     llm_config=code_execution_config,
     code_execution_config={"executor": executor},
     max_consecutive_auto_reply=50
+
+)
+
+# Global agent instances with updated system messages for gemini
+initial_agent_gai = ConversableAgent(
+    name="initial_agent",
+    system_message=Initial_Agent_Instructions,
+    human_input_mode="NEVER",
+    llm_config=initial_config_gai
+)
+
+review_agent_gai = ConversableAgent(
+    name="review_agent",    
+    update_agent_state_before_reply=[
+        UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+    ],
+    human_input_mode="NEVER",
+    llm_config=review_config_gai,
+    functions=review_reply,
+)
+
+
+formatting_agent_gai = ConversableAgent(
+    name="formatting_agent",    
+    update_agent_state_before_reply=[
+        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
+    ],
+    human_input_mode="NEVER",
+    llm_config=formatting_config_gai
+)
+
+# no other handoffs needed as rest will be determined by function call
+initial_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
+formatting_agent_gai.handoffs.set_after_work(TerminateTarget())
+
+
+code_executor_gai = ConversableAgent(
+    name="code_executor",
+    system_message="""{Code_Execution_Agent_Instructions}""",
+    human_input_mode="NEVER",
+    llm_config=code_execution_config_gai,
+    code_execution_config={"executor": executor},
+    max_consecutive_auto_reply=50
 )
 
 def call_ai(context, user_input):
     if mode_is_fast:
         messages = build_messages(context, user_input, Initial_Agent_Instructions)
-        response = st.session_state.llm.invoke(messages)
-        return Response(content=response.content)
+
+        response = []
+
+        for chunk in st.session_state.llm.stream(messages):
+            response.append(chunk.content)  # or chunk if using token chunks
+
+        response = "".join(response)
+        return Response(content=response)
+        #response = st.session_state.llm.invoke(messages)
+        #return Response(content=response.content)
     else:
         # New Groupchat Workflow for detailed mode
         st.markdown("Thinking (Deep Thought Mode)... ")
+
+        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+            st.markdown("Deep thought mode ony works reliably with openai at this point. If using gemini it may not work reliable or even at all")
 
         # Format the conversation history for context
         conversation_history = format_memory_messages(st.session_state.memory.messages)
@@ -802,12 +852,22 @@ def call_ai(context, user_input):
             "revisions": 0,
         })
 
-        pattern = AutoPattern(
-            initial_agent=initial_agent,  # Agent that starts the conversation
-            agents=[initial_agent,review_agent,formatting_agent],
-            group_manager_args={"llm_config": initial_config},
-            context_variables=shared_context,
-        )
+        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+
+            pattern = AutoPattern(
+                initial_agent=initial_agent_gai,  # Agent that starts the conversation
+                agents=[initial_agent_gai,review_agent_gai,formatting_agent_gai],
+                group_manager_args={"llm_config": initial_config_gai},
+                context_variables=shared_context,
+            )
+
+        else:
+            pattern = AutoPattern(
+                initial_agent=initial_agent,  # Agent that starts the conversation
+                agents=[initial_agent,review_agent,formatting_agent],
+                group_manager_args={"llm_config": initial_config},
+                context_variables=shared_context,
+            )
 
 
         st.markdown("Generating answer...")
@@ -818,51 +878,6 @@ def call_ai(context, user_input):
             max_rounds=10,
         )
 
-        # 1. Initial Agent generates the draft
-        #st.markdown("Generating initial draft...")
-        #chat_result_1 = initial_agent.initiate_chat(
-        #    recipient=initial_agent,
-        #    message=f"Conversation history:\n{conversation_history}\n\nContext from documents: {context}\n\nUser question: {user_input}",
-        #    max_turns=1,
-        #    summary_method="last_msg"
-        #)
-        #draft_answer = chat_result_1.summary
-        #if st.session_state.debug:
-        #    st.session_state.debug_messages.append(("Initial Draft", draft_answer))
-
-        # 2. Review Agent critiques the draft
-        #st.markdown("Reviewing draft...")
-        #chat_result_2 = review_agent.initiate_chat(
-        #    recipient=review_agent,
-        #    message=f"Conversation history:\n{conversation_history}\n\nPlease review this draft answer:\n{draft_answer}",
-        #    max_turns=1,
-        #    summary_method="last_msg"
-        #)
-        #review_feedback = chat_result_2.summary
-        #if st.session_state.debug:
-        #    st.session_state.debug_messages.append(("Review Feedback", review_feedback))
-
-        # # 3. Typo Agent corrects the draft
-        # st.markdown("Checking for typos...")
-        # chat_result_3 = typo_agent.initiate_chat(
-        #     recipient=typo_agent,
-        #     message=f"Original draft: {draft_answer}\n\nReview feedback: {review_feedback}",
-        #     max_turns=1,
-        #     summary_method="last_msg"
-        # )
-        # typo_corrected_answer = chat_result_3.summary
-        # if st.session_state.debug: st.text(f"Typo-Corrected Answer:\n{typo_corrected_answer}")
-
-        # 4. Formatting Agent formats the final answer
-        #st.markdown("Formatting final answer...")
-        #chat_result_4 = formatting_agent.initiate_chat(
-        #    recipient=formatting_agent,
-        #    message=f"""Please format this answer while preserving any code blocks:
-        #        {draft_answer}""",
-        #    max_turns=1,
-        #    summary_method="last_msg"
-        #)
-        #formatted_answer = chat_result_4.summary
         
         formatted_answer = shared_context["best_answer"]
 
@@ -923,188 +938,194 @@ if user_input:
         stream_box = st.empty()
         stream_handler = StreamHandler(stream_box)
         
-        # Second initialization with streaming
+        # Initialization with streaming
        
+        if mode_is_fast:
 
-        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
-
-
-            st.session_state.llm = ChatGoogleGenerativeAI(
-                    model=st.session_state.selected_model,
-                    streaming=True,
-                    callbacks=[stream_handler],
-                    google_api_key=api_key_gai,
-                    temperature=0.2,
-                    convert_system_message_to_human=True  # Important for compatibility
-            )
+            if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
 
 
-        else:
-            st.session_state.llm = ChatOpenAI(
-                    model_name=st.session_state.selected_model,
-                    streaming=True,
-                    callbacks=[stream_handler],
-                    openai_api_key=api_key,
-                    temperature=0.2
-            )
+                st.session_state.llm = ChatGoogleGenerativeAI(
+                        model=st.session_state.selected_model,
+                        #streaming=True,
+                        callbacks=[stream_handler],
+                        google_api_key=api_key_gai,
+                        temperature=0.2,
+                        convert_system_message_to_human=True  # Important for compatibility
+                )
+
+
+            else:
+                st.session_state.llm = ChatOpenAI(
+                        model_name=st.session_state.selected_model,
+                        streaming=True,
+                        callbacks=[stream_handler],
+                        openai_api_key=api_key,
+                        temperature=0.2
+                )
 
        
 
         # Check if this is an execution request
         if user_input.strip().lower() == "execute!":
-            # Find the last assistant message containing code
-            last_assistant_message = None
-            for message in reversed(st.session_state.messages):
-                if message["role"] == "assistant" and "```" in message["content"]:
-                    last_assistant_message = message["content"]
-                    break
-            
-            if last_assistant_message:
-                st.markdown("Executing code...")
-                st.info("🚀 Executing cleaned code...")
-                #chat_result = code_executor.initiate_chat(
-                #    recipient=code_executor,
-                #    message=f"Please execute this code:\n{last_assistant_message}",
-                #    max_turns=1,
-                #    summary_method="last_msg"
-                #)
-                #execution_output = chat_result.summary
-                execution_output, plot_path = executor.execute_code(last_assistant_message)
-                st.subheader("Execution Output")
-                st.text(execution_output)  # now contains both STDOUT and STDERR
+
+
+            if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+                st.markdown("Code execution only supprted in openai at the momen")
+            else:
+                # Find the last assistant message containing code
+                last_assistant_message = None
+                for message in reversed(st.session_state.messages):
+                    if message["role"] == "assistant" and "```" in message["content"]:
+                        last_assistant_message = message["content"]
+                        break
                 
-                if os.path.exists(plot_path):
-                    st.success("✅ Plot generated successfully!")
-                    # Display the plot
-                    #st.image(plot_path, use_container_width=True)
-                    st.image(plot_path, width=700)
-                else:
-                    st.warning("⚠️ No plot was generated")
-                
-                # Check for errors and iterate if needed
-                max_iterations = 3  # Maximum number of iterations to prevent infinite loops
-                current_iteration = 0
-                has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
-
-                while has_errors and current_iteration < max_iterations:
-                    current_iteration += 1
-                    st.error(f"Previous error: {execution_output}")  # Show the actual error message
-                    st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
-
-                    # Get new review with error information
-                    review_message = f"""
-                    Previous answer had errors during execution:
-                    {execution_output}
-
-                    Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
-                    {last_assistant_message}
-                    """
-                    chat_result_2 = review_agent.initiate_chat(
-                        recipient=review_agent,
-                        message=review_message,
-                        max_turns=1,
-                        summary_method="last_msg"
-                    )
-                    review_feedback = chat_result_2.summary
-                    if st.session_state.debug:
-                        st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
-
-                    # Get corrected version
-                    chat_result_3 = initial_agent.initiate_chat(
-                        recipient=initial_agent,
-                        message=f"""Original answer: {last_assistant_message}
-                        Review feedback with error fixes: {review_feedback}
-                        IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
-                        max_turns=1,
-                        summary_method="last_msg"
-                    )
-                    corrected_answer = chat_result_3.summary
-                    if st.session_state.debug:
-                        st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
-
-                    # Format the corrected answer
-                    chat_result_4 = formatting_agent.initiate_chat(
-                        recipient=formatting_agent,
-                        message=f"""Please format this corrected answer while preserving all code blocks:
-                        {corrected_answer}
-                        """,
-                        max_turns=1,
-                        summary_method="last_msg"
-                    )
-                    formatted_answer = chat_result_4.summary
-                    if st.session_state.debug:
-                        st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
-
-                    # Execute the corrected code
-                    st.info("🚀 Executing corrected code...")
+                if last_assistant_message:
+                    st.markdown("Executing code...")
+                    st.info("🚀 Executing cleaned code...")
                     #chat_result = code_executor.initiate_chat(
                     #    recipient=code_executor,
-                    #    message=f"Please execute this corrected code:\n{formatted_answer}",
+                    #    message=f"Please execute this code:\n{last_assistant_message}",
                     #    max_turns=1,
                     #    summary_method="last_msg"
                     #)
                     #execution_output = chat_result.summary
-                    execution_output, plot_path = executor.execute_code(formatted_answer)
+                    execution_output, plot_path = executor.execute_code(last_assistant_message)
                     st.subheader("Execution Output")
                     st.text(execution_output)  # now contains both STDOUT and STDERR
                     
                     if os.path.exists(plot_path):
                         st.success("✅ Plot generated successfully!")
                         # Display the plot
+                        #st.image(plot_path, use_container_width=True)
                         st.image(plot_path, width=700)
                     else:
                         st.warning("⚠️ No plot was generated")
                     
-                    if st.session_state.debug:
-                        st.session_state.debug_messages.append(("Execution Output", execution_output))
-                    
-                    # If we've reached the end of iterations and we're successful
-                    if not has_errors or current_iteration == max_iterations:
-                        # Add successful execution to the conversation with plot
-                        final_answer = formatted_answer if formatted_answer else last_assistant_message
-                        response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
-                        
-                        # Add plot path marker for rendering in the conversation
-                        if os.path.exists(plot_path):
-                            response_text += f"\n\nPLOT_PATH:{plot_path}\n"
-                            
-                        if current_iteration > 0:
-                            response_text = f"After {current_iteration} correction attempts: " + response_text
-                        
-                        # Set the response variable with our constructed text that includes plot
-                        response = Response(content=response_text)
-                    
-                    # Update last_assistant_message with the formatted answer for next iteration
-                    last_assistant_message = formatted_answer
+                    # Check for errors and iterate if needed
+                    max_iterations = 3  # Maximum number of iterations to prevent infinite loops
+                    current_iteration = 0
                     has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
 
-                if has_errors:
-                    st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
-                    st.markdown(f"> ❌ Last execution message:\n{execution_output}")
-                    response = Response(content=f"Execution completed with errors:\n{execution_output}")
-                else:
-                    # Check for common error indicators in the output
-                    if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
-                        st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
-                        st.markdown(f"> ❌ Execution message:\n{execution_output}")
+                    while has_errors and current_iteration < max_iterations:
+                        current_iteration += 1
+                        st.error(f"Previous error: {execution_output}")  # Show the actual error message
+                        st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
+
+                        # Get new review with error information
+                        review_message = f"""
+                        Previous answer had errors during execution:
+                        {execution_output}
+
+                        Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+                        {last_assistant_message}
+                        """
+                        chat_result_2 = review_agent.initiate_chat(
+                            recipient=review_agent,
+                            message=review_message,
+                            max_turns=1,
+                            summary_method="last_msg"
+                        )
+                        review_feedback = chat_result_2.summary
+                        if st.session_state.debug:
+                            st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
+
+                        # Get corrected version
+                        chat_result_3 = initial_agent.initiate_chat(
+                            recipient=initial_agent,
+                            message=f"""Original answer: {last_assistant_message}
+                            Review feedback with error fixes: {review_feedback}
+                            IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
+                            max_turns=1,
+                            summary_method="last_msg"
+                        )
+                        corrected_answer = chat_result_3.summary
+                        if st.session_state.debug:
+                            st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
+
+                        # Format the corrected answer
+                        chat_result_4 = formatting_agent.initiate_chat(
+                            recipient=formatting_agent,
+                            message=f"""Please format this corrected answer while preserving all code blocks:
+                            {corrected_answer}
+                            """,
+                            max_turns=1,
+                            summary_method="last_msg"
+                        )
+                        formatted_answer = chat_result_4.summary
+                        if st.session_state.debug:
+                            st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
+
+                        # Execute the corrected code
+                        st.info("🚀 Executing corrected code...")
+                        #chat_result = code_executor.initiate_chat(
+                        #    recipient=code_executor,
+                        #    message=f"Please execute this corrected code:\n{formatted_answer}",
+                        #    max_turns=1,
+                        #    summary_method="last_msg"
+                        #)
+                        #execution_output = chat_result.summary
+                        execution_output, plot_path = executor.execute_code(formatted_answer)
+                        st.subheader("Execution Output")
+                        st.text(execution_output)  # now contains both STDOUT and STDERR
+                        
+                        if os.path.exists(plot_path):
+                            st.success("✅ Plot generated successfully!")
+                            # Display the plot
+                            st.image(plot_path, width=700)
+                        else:
+                            st.warning("⚠️ No plot was generated")
+                        
+                        if st.session_state.debug:
+                            st.session_state.debug_messages.append(("Execution Output", execution_output))
+                        
+                        # If we've reached the end of iterations and we're successful
+                        if not has_errors or current_iteration == max_iterations:
+                            # Add successful execution to the conversation with plot
+                            final_answer = formatted_answer if formatted_answer else last_assistant_message
+                            response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
+                            
+                            # Add plot path marker for rendering in the conversation
+                            if os.path.exists(plot_path):
+                                response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                                
+                            if current_iteration > 0:
+                                response_text = f"After {current_iteration} correction attempts: " + response_text
+                            
+                            # Set the response variable with our constructed text that includes plot
+                            response = Response(content=response_text)
+                        
+                        # Update last_assistant_message with the formatted answer for next iteration
+                        last_assistant_message = formatted_answer
+                        has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
+
+                    if has_errors:
+                        st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
+                        st.markdown(f"> ❌ Last execution message:\n{execution_output}")
                         response = Response(content=f"Execution completed with errors:\n{execution_output}")
                     else:
-                        st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
-                        
-                        # Display the final code that was successfully executed
-                        with st.expander("View Successfully Executed Code", expanded=False):
-                            st.markdown(last_assistant_message)
+                        # Check for common error indicators in the output
+                        if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
+                            st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
+                            st.markdown(f"> ❌ Execution message:\n{execution_output}")
+                            response = Response(content=f"Execution completed with errors:\n{execution_output}")
+                        else:
+                            st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
                             
-                        # Create a response message that includes the plot path
-                        response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
-                        
-                        # Add plot path marker for rendering in the conversation
-                        if os.path.exists(plot_path):
-                            response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                            # Display the final code that was successfully executed
+                            with st.expander("View Successfully Executed Code", expanded=False):
+                                st.markdown(last_assistant_message)
+                                
+                            # Create a response message that includes the plot path
+                            response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
                             
-                        response = Response(content=response_text)
-            else:
-                response = Response(content="No code found to execute in the previous messages.")
+                            # Add plot path marker for rendering in the conversation
+                            if os.path.exists(plot_path):
+                                response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                                
+                            response = Response(content=response_text)
+                else:
+                    response = Response(content="No code found to execute in the previous messages.")
         else:
             response = call_ai(context, user_input)
             if not mode_is_fast:
@@ -1132,9 +1153,9 @@ if "llm_initialized" in st.session_state and st.session_state.llm_initialized an
             streaming_llm = ChatGoogleGenerativeAI(
                 model=st.session_state.selected_model,
                 google_api_key=api_key_gai,
-                streaming=True,
+                #streaming=True,
                 callbacks=[welcome_stream_handler],
-                temperature=0.2,
+                temperature=1.0,
                 convert_system_message_to_human=True  # Important for compatibility
             )
         
@@ -1145,19 +1166,26 @@ if "llm_initialized" in st.session_state and st.session_state.llm_initialized an
                 streaming=True,
                 callbacks=[welcome_stream_handler],
                 openai_api_key=api_key,
-                temperature=0.2
+                temperature=1.0
             )
         
         # Generate the streaming welcome message
-        greeting = streaming_llm.invoke([
+        messages = [
             SystemMessage(content=Initial_Agent_Instructions),
             HumanMessage(content="Please greet the user and briefly explain what you can do as the CLASS code assistant.")
-        ])
+        ]
+
+        greeting = streaming_llm.invoke(messages)
         
         # Save the completed message to history
         st.session_state.messages.append({"role": "assistant", "content": greeting.content})
         st.session_state.memory.add_ai_message(greeting.content)
         st.session_state.greeted = True
+
+        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+            # non streaming greeting
+            st.markdown(greeting.content)
+
 
 # --- Debug Info ---
 if st.session_state.debug:
