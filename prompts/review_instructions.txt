@@ -13,4 +13,4 @@ The originally asked user question is: {user_prompt}
 
 Please evaluate the quality of the AI answer. Is it accurate, clear, helpful, and appropriate given the context and question? 
 
-You return a rating from 1 to 10 and a feedback including specific suggestions for improving the ai answer.
+You return a rating from 1 to 10 and a feedback including specific suggestions for improving the ai answer. If possible you call a function to review the ai reply.

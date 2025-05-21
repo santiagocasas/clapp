@@ -15,7 +15,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.documents import Document
-#from langchain.embeddings import HuggingFaceEmbeddings
+from autogen.agentchat.group import OnCondition, StringLLMCondition
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.callbacks.base import BaseCallbackHandler
@@ -197,15 +197,18 @@ with st.sidebar:
                 st.session_state.encrypted_key = encrypted_key.decode()
                 st.session_state.encrypted_key_gai = encrypted_key_gai.decode()
                 
+                
                 # Save to file
-                if save_encrypted_key(encrypted_key.decode(), username):
-                    st.success("API key encrypted and saved! ✅")
-                else:
-                    st.warning("API key encrypted but couldn't save to file! ⚠️")
-                if save_encrypted_key(encrypted_key_gai.decode(), username+'_gai'):
-                    st.success("API Gemini key encrypted and saved! ✅")
-                else:
-                    st.warning("API Gemini key encrypted but couldn't save to file! ⚠️")
+                if api_key:
+                    if save_encrypted_key(encrypted_key.decode(), username):
+                        st.success("API key encrypted and saved! ✅")
+                    else:
+                        st.warning("API key encrypted but couldn't save to file! ⚠️")
+                if api_key_gai:
+                    if save_encrypted_key(encrypted_key_gai.decode(), username+'_gai'):
+                        st.success("API Gemini key encrypted and saved! ✅")
+                    else:
+                        st.warning("API Gemini key encrypted but couldn't save to file! ⚠️")
             except Exception as e:
                 st.error(f"Error saving API key: {str(e)}")
     
@@ -222,15 +225,31 @@ with st.sidebar:
                 
                 # Decrypt the saved key
                 decrypted_key = fernet.decrypt(encrypted_key.encode()).decode()
-                decrypted_key_gai = fernet.decrypt(encrypted_key_gai.encode()).decode()
                 # Set the API key
                 api_key = decrypted_key
-                api_key_gai = decrypted_key_gai
                 st.session_state.saved_api_key = api_key
-                st.session_state.saved_api_key_gai = api_key_gai
+                
+
                 st.success("API key loaded successfully! 🔑")
             except Exception as e:
                 st.error("Failed to decrypt API key. Wrong password? 🔒")
+        if encrypted_key_gai:
+            try:
+                # Recreate encryption key
+                key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
+                fernet = Fernet(key)
+                
+                # Decrypt the saved key
+
+                decrypted_key_gai = fernet.decrypt(encrypted_key_gai.encode()).decode()
+                api_key_gai = decrypted_key_gai
+                st.session_state.saved_api_key_gai = api_key_gai
+                
+                st.success("Gemini API key loaded successfully! 🔑")
+            except Exception as e:
+                st.error("Failed to decrypt Gemini API key. Wrong password? 🔒")
+
+
         else:
             st.warning("No saved API key found. Please enter your API key first. 🔑")
 
@@ -278,45 +297,6 @@ with st.sidebar:
         else:
             st.warning("No saved API keys found to delete.")
 
-    st.session_state.selected_model = st.selectbox(
-        "4. Choose LLM model 🧠",
-        options=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"],
-        index=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"].index(st.session_state.selected_model)
-    )
-
-
-    # Check if model has changed
-    if "previous_model" not in st.session_state:
-        st.session_state.previous_model = st.session_state.selected_model
-    elif st.session_state.previous_model != st.session_state.selected_model:
-        # Reset relevant state variables when model changes
-        #st.session_state.vector_store = None
-        st.session_state.greeted = False
-        st.session_state.messages = []
-        st.session_state.memory = ChatMessageHistory()
-        st.session_state.previous_model = st.session_state.selected_model
-        st.info("Model changed! Chat has been reset.")
-    if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
-        if api_key_gai:
-            st.session_state.llm_initialized = True        
-    elif api_key:
-        st.session_state.llm_initialized = True
-        
-
-    st.write("### Response Mode")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        mode_is_fast = st.toggle("Fast Mode", value=True)
-    with col2:
-        if mode_is_fast:
-            st.caption("✨ Quick responses with good quality (recommended for most uses)")
-        else:
-            st.caption("🎯 Multi-agent setup, more refined responses (takes longer)")
-    
-
-
-        
-        # Initialize only after model is selected
     if st.button("🚀 Generate embedding"):
         # First initialization without streaming
 
@@ -370,6 +350,47 @@ with st.sidebar:
         st.session_state.vector_store.save_local("my_faiss_index")
 
 
+
+    st.session_state.selected_model = st.selectbox(
+        "4. Choose LLM model 🧠",
+        options=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"],
+        index=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"].index(st.session_state.selected_model)
+    )
+
+
+    # Check if model has changed
+    if "previous_model" not in st.session_state:
+        st.session_state.previous_model = st.session_state.selected_model
+    elif st.session_state.previous_model != st.session_state.selected_model:
+        # Reset relevant state variables when model changes
+        #st.session_state.vector_store = None
+        st.session_state.greeted = False
+        st.session_state.messages = []
+        st.session_state.memory = ChatMessageHistory()
+        st.session_state.previous_model = st.session_state.selected_model
+        st.info("Model changed! Chat has been reset.")
+    if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+        if api_key_gai:
+            st.session_state.llm_initialized = True        
+    elif api_key:
+        st.session_state.llm_initialized = True
+        
+
+    st.write("### Response Mode")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        mode_is_fast = st.toggle("Fast Mode", value=True)
+    with col2:
+        if mode_is_fast:
+            st.caption("✨ Quick responses with good quality (recommended for most uses)")
+        else:
+            st.caption("🎯 Multi-agent setup, more refined responses (takes longer)")
+    
+
+
+        
+        # Initialize only after model is selected
+    
 
 
     st.markdown("---")  # Add a separator for better visual organization
@@ -794,6 +815,8 @@ formatting_agent = ConversableAgent(
 
 # no other handoffs needed as rest will be determined by function call
 initial_agent.handoffs.set_after_work(AgentTarget(review_agent))
+initial_agent.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
+
 formatting_agent.handoffs.set_after_work(TerminateTarget())
 
 
@@ -816,6 +839,13 @@ initial_agent_gai = ConversableAgent(
     llm_config=initial_config_gai
 )
 
+initial_agent_gai2 = ConversableAgent(
+    name="initial_agent2",
+    system_message=Initial_Agent_Instructions,
+    human_input_mode="NEVER",
+    llm_config=initial_config_gai
+)
+
 review_agent_gai = ConversableAgent(
     name="review_agent",    
     update_agent_state_before_reply=[
@@ -823,7 +853,7 @@ review_agent_gai = ConversableAgent(
     ],
     human_input_mode="NEVER",
     llm_config=review_config_gai,
-    functions=review_reply,
+    #functions=review_reply,   # funcktions are often not working as planned with gemini
 )
 
 
@@ -838,6 +868,10 @@ formatting_agent_gai = ConversableAgent(
 
 # no other handoffs needed as rest will be determined by function call
 initial_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
+#initial_agent_gai.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The review_agent has spoken and given a favarable rating (equivalent to 7 or higher)"))])
+#initial_agent_gai.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The review_agent has spoken multiple times"))])
+review_agent_gai.handoffs.set_after_work(AgentTarget(initial_agent_gai2))
+initial_agent_gai2.handoffs.set_after_work(AgentTarget(formatting_agent_gai))
 formatting_agent_gai.handoffs.set_after_work(TerminateTarget())
 
 
@@ -885,7 +919,7 @@ def call_ai(context, user_input):
 
             pattern = AutoPattern(
                 initial_agent=initial_agent_gai,  # Agent that starts the conversation
-                agents=[initial_agent_gai,review_agent_gai,formatting_agent_gai],
+                agents=[initial_agent_gai,initial_agent_gai2,review_agent_gai,formatting_agent_gai],
                 group_manager_args={"llm_config": initial_config_gai},
                 context_variables=shared_context,
             )
@@ -907,8 +941,31 @@ def call_ai(context, user_input):
             max_rounds=10,
         )
 
-        
-        formatted_answer = shared_context["best_answer"]
+        formatted_answer = None  # default to nothing
+
+        # 1. If the formatting agent gave the last reply, use that
+        if last_agent == formatting_agent or last_agent == formatting_agent_gai:
+            formatted_answer = result.chat_history[-1]["content"]
+
+        # 2. Otherwise, use shared_context["best_answer"] if it's non-empty
+        if not formatted_answer and shared_context.get("best_answer"):
+            formatted_answer = shared_context["best_answer"]
+
+        # 3. Otherwise, fall back to the initial agent's last message
+        try:
+            if not formatted_answer:
+                for item in result.chat_history:
+                    if item['name'] == 'initial_agent' or item['name'] == 'initial_agent2':
+                        formatted_answer = item["content"]
+        except:
+            formatted_answer = "⚠️ Failed to load chat history"
+
+                            
+
+        # Final fallback in case everything fails
+        if not formatted_answer:
+            formatted_answer = "⚠️ No formatted answer found."
+
 
         if st.session_state.debug:
             st.session_state.debug_messages.append(("Formatted Answer", formatted_answer))
@@ -1000,7 +1057,8 @@ if user_input:
 
 
             if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
-                st.markdown("Code execution only supprted in openai at the momen")
+                st.markdown("Code execution only supprted in openai at the moment")
+                response = Response(content="Cannot excecute code with gemini api")
             else:
                 # Find the last assistant message containing code
                 last_assistant_message = None
@@ -1165,7 +1223,7 @@ if user_input:
 
 # --- Display Welcome Message (outside of sidebar) ---
 # This ensures the welcome message appears in the main content area
-if "llm_initialized" in st.session_state and st.session_state.llm_initialized and not st.session_state.greeted:
+if "llm_initialized" in st.session_state and st.session_state.llm_initialized and st.session_state.vector_store and not st.session_state.greeted:
     # Create a chat message container for the welcome message
     with st.chat_message("assistant"):
         # Create empty container for streaming
