@@ -103,7 +103,45 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-st.markdown("# CLAPP: CLASS LLM Agent for Pair Programming")
+def inject_global_styles_and_font(font_name: str):
+    font_url_name = font_name.replace(" ", "+")
+    st.markdown(
+        f"""
+        <link href="https://fonts.googleapis.com/css?family={font_url_name}" rel="stylesheet">
+        <style>
+        .main-title {{
+            font-family: '{font_name}', sans-serif !important;
+            font-size: 3.8rem !important;
+            font-weight: 700 !important;
+            margin-bottom: 0.5rem !important;
+            margin-top: 0.5rem !important;
+            color: #222;
+            letter-spacing: 1px;
+        }}
+        .app-title, .section4-header {{
+            font-family: '{font_name}', sans-serif !important;
+            font-size: 2rem !important;
+            font-weight: 600 !important;
+            margin-bottom: 0.2rem !important;
+            margin-top: 0.5rem !important;
+            color: #222;
+            letter-spacing: 0.5px;
+        }}
+        .section4-header {{
+            margin-bottom: -0.5rem !important;
+        }}
+        div[data-testid="stSelectbox"] {{
+            margin-top: -0.5rem !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# Call this ONCE at the top
+inject_global_styles_and_font("Jersey 10")
+
+st.markdown('<div class="main-title">CLAPP: CLASS LLM Agent for Pair Programming</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.image("images/CLAPP.png", width=400)
@@ -146,7 +184,7 @@ init_session()
 
 # --- Sidebar Configuration ---
 with st.sidebar:
-    st.header("🔐 API & Assistants")
+    st.markdown('<div class="app-title">🔐 API & Assistants</div>', unsafe_allow_html=True)
     api_key = st.text_input("1. OpenAI API Key", type="password")
     username = st.text_input("2. Username (for saving your API key)", placeholder="Enter your username")
     user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
@@ -238,8 +276,10 @@ with st.sidebar:
         else:
             st.warning("No saved API keys found to delete.")
 
+    st.markdown('<div class="app-title">4. Choose LLM model 🧠</div>', unsafe_allow_html=True)
+
     st.session_state.selected_model = st.selectbox(
-        "4. Choose LLM model 🧠",
+        "",  # No label, since we use our own
         options=["gpt-4o-mini", "gpt-4o"],
         index=["gpt-4o-mini", "gpt-4o"].index(st.session_state.selected_model)
     )
@@ -257,7 +297,7 @@ with st.sidebar:
         st.session_state.previous_model = st.session_state.selected_model
         st.info("Model changed! Please initialize again with the new model.")
 
-    st.write("### Response Mode")
+    st.markdown('<div class="app-title">Response Mode</div>', unsafe_allow_html=True)
     col1, col2 = st.columns([1, 2])
     with col1:
         mode_is_fast = st.toggle("Fast Mode", value=True)
@@ -328,7 +368,7 @@ with st.sidebar:
     st.markdown("---")  # Add a separator for better visual organization
     
     # Check if CLASS is already installed
-    st.markdown("### 🔧 CLASS Setup")
+    st.markdown('<div class="app-title">🔧 CLASS Setup</div>', unsafe_allow_html=True)
     if st.checkbox("Check CLASS installation status"):
         try:
             # Use sys.executable to run a simple test to see if classy can be imported
@@ -660,9 +700,11 @@ code_execution_config = LLMConfig(
     api_key=api_key,
 )
 
-def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"],feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
-                  , rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], context_variables: ContextVariables) -> ReplyResult:
-    """Review the reply of the Ai Agent to the user prompt with respect to correctness, clarity and relevance for the user prompt"""
+def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"], 
+                 feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"], 
+                 rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], 
+                 context_variables: ContextVariables) -> ReplyResult:
+    """Review the reply of the AI Agent to the user prompt with respect to correctness, clarity and relevance for the user prompt"""
     
 
     context_variables["best_answer"] = reply
