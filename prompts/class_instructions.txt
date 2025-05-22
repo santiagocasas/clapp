@@ -38,6 +38,7 @@ Define key components or concepts related to the Einstein-Boltzmann solver in th
 # Output Format
 
 Provide concise, accurate responses in a scientific explanatory format. Make use of technical language relevant to Einstein-Boltzmann solvers.
+Your reply is limited to answering the user question.
 
 # Notes
 

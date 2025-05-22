@@ -52,6 +52,8 @@ import contextlib  # for contextlib.contextmanager
 # --- Helper Functions ---
 def save_encrypted_key(encrypted_key, username):
     """Save encrypted key to file with username prefix"""
+    if not username:
+        username = 'anon'
     try:
         filename = f"{username}_encrypted_api_key" if username else ".encrypted_api_key"
         with open(filename, "w") as f:
@@ -62,6 +64,8 @@ def save_encrypted_key(encrypted_key, username):
 
 def load_encrypted_key(username):
     """Load encrypted key from file with username prefix"""
+    if not username:
+        username = 'anon'
     try:
         filename = f"{username}_encrypted_api_key" if username else ".encrypted_api_key"
         with open(filename, "r") as f:
@@ -107,6 +111,7 @@ with col2:
 
 # New prompts for the swarm
 Initial_Agent_Instructions = read_prompt_from_file("prompts/class_instructions.txt") # Reuse or adapt class_instructions
+Refine_Agent_Instructions = read_prompt_from_file("prompts/class_refinement.txt") # Instructions on imporving an answer
 Review_Agent_Instructions = read_prompt_from_file("prompts/review_instructions.txt") # Adapt rating_instructions
 Formatting_Agent_Instructions = read_prompt_from_file("prompts/formatting_instructions.txt") # New prompt file
 Code_Execution_Agent_Instructions = read_prompt_from_file("prompts/codeexecutor_instructions.txt") # New prompt file
@@ -151,31 +156,6 @@ with st.sidebar:
     username = st.text_input("2. Username (for saving your API key)", placeholder="Enter your username")
     user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
 
-
-    if st.session_state.vector_store is None:
-        embedding_status = st.empty()
-        
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
-        )
-
-        index_path = "my_faiss_index"
-
-        # Check if the FAISS index directory exists and contains the index file
-        if os.path.exists(os.path.join(index_path, "index.faiss")):
-            embedding_status.info("🔄 Loading existing FAISS index...")
-            st.session_state.vector_store = FAISS.load_local(
-                        folder_path=index_path,
-                        embeddings=embeddings,
-                        allow_dangerous_deserialization=True
-            )
-            embedding_status.info("🔄 RAG ready")
-
-        else:
-            embedding_status.info("🔄 No stored embedding found, please genereate one")
-
-
-   
     
     # When both API key and password are provided
     if (api_key or api_key_gai) and user_password:
@@ -197,6 +177,8 @@ with st.sidebar:
                 st.session_state.encrypted_key = encrypted_key.decode()
                 st.session_state.encrypted_key_gai = encrypted_key_gai.decode()
                 
+                if not username:
+                    username = 'anon'
                 
                 # Save to file
                 if api_key:
@@ -215,6 +197,8 @@ with st.sidebar:
     # Try to load saved API key if password is provided
     elif user_password and (not api_key or not api_key_gai):
         # Try to load from file first
+        if not username:
+            username = 'anon'
         encrypted_key = load_encrypted_key(username)
         encrypted_key_gai = load_encrypted_key(username+'_gai')
         if encrypted_key:
@@ -257,35 +241,26 @@ with st.sidebar:
     if st.button("🗑️ Clear Saved API Key"):
         deleted_files = False
         error_message = ""
-        
-        # Try to delete username-specific file if it exists
-        if username:
-            filename = f"{username}_encrypted_api_key"
-            if os.path.exists(filename):
-                try:
-                    os.remove(filename)
-                    deleted_files = True
-                    st.success(f"Deleted key file for user: {username}")
-                except Exception as e:
-                    error_message += f"Error clearing {filename}: {str(e)}\n"
-                    filename = f"{username}_encrypted_api_key"
-            filename = f"{username}_gai_encrypted_api_key"
-            if os.path.exists(filename):
-                try:
-                    os.remove(filename)
-                    deleted_files = True
-                    st.success(f"Deleted key file for user: {username}")
-                except Exception as e:
-                    error_message += f"Error clearing {filename}: {str(e)}\n"
-        
-        # Also try to delete the default file if it exists
-        if os.path.exists(".encrypted_api_key"):
+        if not username:
+            username = 'anon'
+        filename = f"{username}_encrypted_api_key"
+        if os.path.exists(filename):
             try:
-                os.remove(".encrypted_api_key")
+                os.remove(filename)
                 deleted_files = True
-                st.success("Deleted default key file")
+                st.success(f"Deleted key file for user: {username}")
             except Exception as e:
-                error_message += f"Error clearing default key file: {str(e)}\n"
+                error_message += f"Error clearing {filename}: {str(e)}\n"
+                filename = f"{username}_encrypted_api_key"
+        filename = f"{username}_gai_encrypted_api_key"
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+                deleted_files = True
+                st.success(f"Deleted key file for user: {username}")
+            except Exception as e:
+                error_message += f"Error clearing {filename}: {str(e)}\n"
+        
         
         # Show appropriate message
         if deleted_files:
@@ -296,7 +271,34 @@ with st.sidebar:
             st.error(error_message)
         else:
             st.warning("No saved API keys found to delete.")
+    
+    st.markdown("---")  # Add a separator for better visual organization
 
+    if st.session_state.vector_store is None:
+        embedding_status = st.empty()
+        
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
+        )
+
+        index_path = "my_faiss_index"
+
+        # Check if the FAISS index directory exists and contains the index file
+        if os.path.exists(os.path.join(index_path, "index.faiss")):
+            embedding_status.info("🔄 Loading existing FAISS index...")
+            st.session_state.vector_store = FAISS.load_local(
+                        folder_path=index_path,
+                        embeddings=embeddings,
+                        allow_dangerous_deserialization=True
+            )
+            embedding_status.info("🔄 RAG ready")
+
+        else:
+            embedding_status.info("🔄 No stored embedding found, please genereate one")
+    if st.session_state.vector_store:
+        st.markdown("Embedding loaded from file. You can recreate it to include the newest RAG data")
+    else:
+        st.markdown("No embedding found, please create the embedding to use the agents!")
     if st.button("🚀 Generate embedding"):
         # First initialization without streaming
 
@@ -349,7 +351,8 @@ with st.sidebar:
 
         st.session_state.vector_store.save_local("my_faiss_index")
 
-
+    st.markdown("---")  # Add a separator for better visual organization
+    
 
     st.session_state.selected_model = st.selectbox(
         "4. Choose LLM model 🧠",
@@ -773,7 +776,7 @@ def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"]
 
         return ReplyResult(
             context_variables=context_variables,
-            target=AgentNameTarget("initial_agent"),
+            target=AgentNameTarget("improve_reply_agent"),
             message=f'Please revise your answer considering this feedback {feedback}',
         )
     else:
@@ -803,6 +806,14 @@ review_agent = ConversableAgent(
     functions=review_reply,
 )
 
+refine_agent = ConversableAgent(
+    name="improve_reply_agent",    
+    update_agent_state_before_reply=[
+        UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+    ],
+    human_input_mode="NEVER",
+    llm_config=initial_config,   
+)
 
 formatting_agent = ConversableAgent(
     name="formatting_agent",    
@@ -815,7 +826,8 @@ formatting_agent = ConversableAgent(
 
 # no other handoffs needed as rest will be determined by function call
 initial_agent.handoffs.set_after_work(AgentTarget(review_agent))
-initial_agent.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
+refine_agent.handoffs.set_after_work(AgentTarget(review_agent))
+refine_agent.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
 
 formatting_agent.handoffs.set_after_work(TerminateTarget())
 
@@ -839,11 +851,13 @@ initial_agent_gai = ConversableAgent(
     llm_config=initial_config_gai
 )
 
-initial_agent_gai2 = ConversableAgent(
-    name="initial_agent2",
-    system_message=Initial_Agent_Instructions,
+refine_agent_gai = ConversableAgent(
+    name="improve_reply_agent",    
+    update_agent_state_before_reply=[
+        UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+    ],
     human_input_mode="NEVER",
-    llm_config=initial_config_gai
+    llm_config=initial_config_gai,   
 )
 
 review_agent_gai = ConversableAgent(
@@ -868,10 +882,8 @@ formatting_agent_gai = ConversableAgent(
 
 # no other handoffs needed as rest will be determined by function call
 initial_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
-#initial_agent_gai.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The review_agent has spoken and given a favarable rating (equivalent to 7 or higher)"))])
-#initial_agent_gai.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The review_agent has spoken multiple times"))])
-review_agent_gai.handoffs.set_after_work(AgentTarget(initial_agent_gai2))
-initial_agent_gai2.handoffs.set_after_work(AgentTarget(formatting_agent_gai))
+review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
+refine_agent_gai.handoffs.set_after_work(AgentTarget(formatting_agent_gai))
 formatting_agent_gai.handoffs.set_after_work(TerminateTarget())
 
 
@@ -919,7 +931,7 @@ def call_ai(context, user_input):
 
             pattern = AutoPattern(
                 initial_agent=initial_agent_gai,  # Agent that starts the conversation
-                agents=[initial_agent_gai,initial_agent_gai2,review_agent_gai,formatting_agent_gai],
+                agents=[initial_agent_gai,review_agent_gai,refine_agent_gai,formatting_agent_gai],
                 group_manager_args={"llm_config": initial_config_gai},
                 context_variables=shared_context,
             )
@@ -927,7 +939,7 @@ def call_ai(context, user_input):
         else:
             pattern = AutoPattern(
                 initial_agent=initial_agent,  # Agent that starts the conversation
-                agents=[initial_agent,review_agent,formatting_agent],
+                agents=[initial_agent,review_agent,refine_agent,formatting_agent],
                 group_manager_args={"llm_config": initial_config},
                 context_variables=shared_context,
             )
@@ -955,7 +967,7 @@ def call_ai(context, user_input):
         try:
             if not formatted_answer:
                 for item in result.chat_history:
-                    if item['name'] == 'initial_agent' or item['name'] == 'initial_agent2':
+                    if item['name'] == 'initial_agent' or item['name'] == 'improve_reply_agent':
                         formatted_answer = item["content"]
         except:
             formatted_answer = "⚠️ Failed to load chat history"
