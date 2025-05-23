@@ -792,6 +792,7 @@ def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"]
 initial_agent = ConversableAgent(
     name="initial_agent",
     system_message=Initial_Agent_Instructions,
+    description="Initial agent that answers user prompt",
     human_input_mode="NEVER",
     llm_config=initial_config
 )
@@ -802,6 +803,8 @@ review_agent = ConversableAgent(
         UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
     ],
     human_input_mode="NEVER",
+
+    description="Reviews the AI answer to user prompt",
     llm_config=review_config,
     functions=review_reply,
 )
@@ -812,6 +815,8 @@ refine_agent = ConversableAgent(
         UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
     ],
     human_input_mode="NEVER",
+
+    description="Improves the AI reply by taking into account the feedback",
     llm_config=initial_config,   
 )
 
@@ -821,6 +826,8 @@ formatting_agent = ConversableAgent(
         UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
     ],
     human_input_mode="NEVER",
+
+    description="Formats the final reply for the user",
     llm_config=formatting_config
 )
 
@@ -847,6 +854,8 @@ code_executor = ConversableAgent(
 initial_agent_gai = ConversableAgent(
     name="initial_agent",
     system_message=Initial_Agent_Instructions,
+
+    description="Initial agent that answers user prompt",
     human_input_mode="NEVER",
     llm_config=initial_config_gai
 )
@@ -857,6 +866,8 @@ refine_agent_gai = ConversableAgent(
         UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
     ],
     human_input_mode="NEVER",
+
+    description="Improves the AI reply by taking into account the feedback",
     llm_config=initial_config_gai,   
 )
 
@@ -866,6 +877,8 @@ review_agent_gai = ConversableAgent(
         UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
     ],
     human_input_mode="NEVER",
+
+    description="Reviews the AI answer to user prompt",
     llm_config=review_config_gai,
     #functions=review_reply,   # funcktions are often not working as planned with gemini
 )
@@ -876,6 +889,8 @@ formatting_agent_gai = ConversableAgent(
     update_agent_state_before_reply=[
         UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
     ],
+
+    description="Formats the final reply for the user",
     human_input_mode="NEVER",
     llm_config=formatting_config_gai
 )
