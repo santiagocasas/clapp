@@ -51,6 +51,8 @@ dependencies:
       - fqdn==1.5.1
       - frozenlist==1.5.0
       - gitdb==4.0.12
+      - google-generativeai
+      - google-auth
       - gitpython==3.1.44
       - greenlet==3.1.1
       - h11==0.14.0
