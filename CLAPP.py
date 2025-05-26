@@ -1,6 +1,10 @@
 # This script requires Streamlit and LangChain
 # Install it with: pip install streamlit openai langchain langchain-openai langchain-community
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache"  # Optional: use a writable cache
+
 import streamlit as st
 import time
 import json

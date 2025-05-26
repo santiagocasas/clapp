@@ -186,4 +186,6 @@ dependencies:
       - widgetsnbextension==4.0.13
       - yarl==1.18.3
       - zstandard==0.23.0
+      - torch
+      - sentence-transformers
 prefix: /home/santiago/miniforge3/envs/py310
