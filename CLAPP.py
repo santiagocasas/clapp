@@ -354,10 +354,15 @@ with st.sidebar:
     st.markdown("---")  # Add a separator for better visual organization
     
 
+    # --- Model Lists ---
+    GPT_MODELS = ["gpt-4o-mini", "gpt-4o"]
+    GEMINI_MODELS = ["gemini-2.5-pro-preview-05-06", "gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"]
+    ALL_MODELS = GPT_MODELS + GEMINI_MODELS
+
     st.session_state.selected_model = st.selectbox(
-        "4. Choose LLM model 🧠",
-        options=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"],
-        index=["gpt-4o-mini", "gpt-4o","gemini-2.0-flash","gemini-1.5-flash"].index(st.session_state.selected_model)
+        "4. Choose LLM model ��",
+        options=ALL_MODELS,
+        index=ALL_MODELS.index(st.session_state.selected_model)
     )
 
 
@@ -372,10 +377,10 @@ with st.sidebar:
         st.session_state.memory = ChatMessageHistory()
         st.session_state.previous_model = st.session_state.selected_model
         st.info("Model changed! Chat has been reset.")
-    if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+    if st.session_state.selected_model in GEMINI_MODELS:
         if api_key_gai:
             st.session_state.llm_initialized = True        
-    elif api_key:
+    elif st.session_state.selected_model in GPT_MODELS and api_key:
         st.session_state.llm_initialized = True
         
 
@@ -928,7 +933,7 @@ def call_ai(context, user_input):
         # New Groupchat Workflow for detailed mode
         st.markdown("Thinking (Deep Thought Mode)... ")
 
-        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+        if st.session_state.selected_model in GEMINI_MODELS:
             st.markdown("Deep thought mode ony works reliably with openai at this point. If using gemini it may not work reliable or even at all")
 
         # Format the conversation history for context
@@ -942,7 +947,7 @@ def call_ai(context, user_input):
             "revisions": 0,
         })
 
-        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+        if st.session_state.selected_model in GEMINI_MODELS:
 
             pattern = AutoPattern(
                 initial_agent=initial_agent_gai,  # Agent that starts the conversation
@@ -1055,7 +1060,7 @@ if user_input:
        
         if mode_is_fast:
 
-            if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+            if st.session_state.selected_model in GEMINI_MODELS:
 
 
                 st.session_state.llm = ChatGoogleGenerativeAI(
@@ -1083,7 +1088,7 @@ if user_input:
         if user_input.strip().lower() == "execute!":
 
 
-            if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+            if st.session_state.selected_model in GEMINI_MODELS:
                 st.markdown("Code execution only supprted in openai at the moment")
                 response = Response(content="Cannot excecute code with gemini api")
             else:
@@ -1260,7 +1265,7 @@ if "llm_initialized" in st.session_state and st.session_state.llm_initialized an
         welcome_stream_handler = StreamHandler(welcome_container)
 
 
-        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+        if st.session_state.selected_model in GEMINI_MODELS:
 
             #streaming_llm = genai.GenerativeModel(model_name=st.session_state.selected_model)
 
@@ -1296,7 +1301,7 @@ if "llm_initialized" in st.session_state and st.session_state.llm_initialized an
         st.session_state.memory.add_ai_message(greeting.content)
         st.session_state.greeted = True
 
-        if st.session_state.selected_model in ["gemini-2.0-flash","gemini-1.5-flash"]:
+        if st.session_state.selected_model in GEMINI_MODELS:
             # non streaming greeting
             st.markdown(greeting.content)
 
