@@ -277,7 +277,8 @@ with st.sidebar:
     embedding_status = st.empty()
     index_path = "my_faiss_index"
     embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"}
     )
 
     # Check if the FAISS index exists and load if not already loaded
