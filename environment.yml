@@ -3,6 +3,8 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
+  - python=3.10
+  - pip
   - pip:
       - ag2==0.9.1.post0
       - aiohappyeyeballs==2.6.1
