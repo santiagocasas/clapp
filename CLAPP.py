@@ -49,6 +49,22 @@ import sys
 from typing import Tuple
 import contextlib  # for contextlib.contextmanager
 
+def get_all_docs_from_class_data():
+    all_docs = []
+    for filename in os.listdir("./class-data"):
+        file_path = os.path.join("./class-data", filename)
+        if filename.endswith('.pdf'):
+            loader = PyPDFLoader(file_path)
+            docs = loader.load()
+            all_docs.extend(docs)
+        elif filename.endswith(('.txt', '.py', '.ini')):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+                all_docs.append(Document(
+                    page_content=text,
+                    metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
+                ))
+    return all_docs
 # --- Helper Functions ---
 def save_encrypted_key(encrypted_key, username):
     """Save encrypted key to file with username prefix"""
@@ -150,217 +166,178 @@ init_session()
 with st.sidebar:
     st.header("🔐 API & Assistants")
     api_key = st.text_input("1. OpenAI API Key", type="password")
-
     api_key_gai = st.text_input("1. Gemini API Key", type="password")
-    
-    username = st.text_input("2. Username (for saving your API key)", placeholder="Enter your username")
+
+    # --- Load API Key (direct, no encryption) ---
+    if st.button("🔓 Load API Key(s) into session"):
+        if api_key:
+            st.session_state.saved_api_key = api_key
+        if api_key_gai:
+            st.session_state.saved_api_key_gai = api_key_gai
+        st.success("API key(s) loaded into session.")
+        st.rerun()
+
+    username = st.text_input("2. Username (for loading or saving API key)", placeholder="Enter your username")
     user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
 
-    
-    # When both API key and password are provided
-    if (api_key or api_key_gai) and user_password:
-        # Create encryption key from password
-        key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
-        fernet = Fernet(key)
-        
-        # If this is a new API key, encrypt and save it
-        if api_key != st.session_state.saved_api_key or api_key_gai != st.session_state.saved_api_key_gai:
-            try:
-                # Encrypt the API key
-                encrypted_key = fernet.encrypt(api_key.encode())
-                encrypted_key_gai = fernet.encrypt(api_key_gai.encode())
-                # Save to session state and file
+    # File existence checks
+    username_display = username if username else 'anon'
+    openai_file = f"{username_display}_encrypted_api_key"
+    gemini_file = f"{username_display}_gai_encrypted_api_key"
+    openai_file_exists = os.path.exists(openai_file)
+    gemini_file_exists = os.path.exists(gemini_file)
 
-                st.session_state.saved_api_key = api_key
-                st.session_state.saved_api_key_gai = api_key_gai
-                
-                st.session_state.encrypted_key = encrypted_key.decode()
-                st.session_state.encrypted_key_gai = encrypted_key_gai.decode()
-                
-                if not username:
-                    username = 'anon'
-                
-                # Save to file
-                if api_key:
-                    if save_encrypted_key(encrypted_key.decode(), username):
-                        st.success("API key encrypted and saved! ✅")
+    # Session state checks
+    openai_loaded = bool(st.session_state.get("saved_api_key"))
+    gemini_loaded = bool(st.session_state.get("saved_api_key_gai"))
+
+    # Status display
+    st.markdown(f"OpenAI Key: {'✅ Loaded' if openai_loaded else '❌ Not loaded'} | Encrypted: {'🗄️' if openai_file_exists else '—'}")
+    st.markdown(f"Gemini Key: {'✅ Loaded' if gemini_loaded else '❌ Not loaded'} | Encrypted: {'🗄️' if gemini_file_exists else '—'}")
+
+    # --- Save API Key as encrypted file ---
+    if (openai_loaded or gemini_loaded) and user_password and username and (not openai_file_exists or not gemini_file_exists):
+        if st.button("💾 Save API Key(s) as encrypted file"):
+            key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
+            fernet = Fernet(key)
+            try:
+                if openai_loaded and not openai_file_exists:
+                    encrypted_key = fernet.encrypt(st.session_state.saved_api_key.encode())
+                    if save_encrypted_key(encrypted_key.decode(), username_display):
+                        st.success("OpenAI API key encrypted and saved! ✅")
                     else:
-                        st.warning("API key encrypted but couldn't save to file! ⚠️")
-                if api_key_gai:
-                    if save_encrypted_key(encrypted_key_gai.decode(), username+'_gai'):
-                        st.success("API Gemini key encrypted and saved! ✅")
+                        st.warning("OpenAI API key encrypted but couldn't save to file! ⚠️")
+                if gemini_loaded and not gemini_file_exists:
+                    encrypted_key_gai = fernet.encrypt(st.session_state.saved_api_key_gai.encode())
+                    if save_encrypted_key(encrypted_key_gai.decode(), username_display+'_gai'):
+                        st.success("Gemini API key encrypted and saved! ✅")
                     else:
-                        st.warning("API Gemini key encrypted but couldn't save to file! ⚠️")
+                        st.warning("Gemini API key encrypted but couldn't save to file! ⚠️")
             except Exception as e:
                 st.error(f"Error saving API key: {str(e)}")
-    
-    # Try to load saved API key if password is provided
-    elif user_password and (not api_key or not api_key_gai):
-        # Try to load from file first
-        if not username:
-            username = 'anon'
-        encrypted_key = load_encrypted_key(username)
-        encrypted_key_gai = load_encrypted_key(username+'_gai')
-        if encrypted_key:
-            try:
-                # Recreate encryption key
-                key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
-                fernet = Fernet(key)
-                
-                # Decrypt the saved key
-                decrypted_key = fernet.decrypt(encrypted_key.encode()).decode()
-                # Set the API key
-                api_key = decrypted_key
-                st.session_state.saved_api_key = api_key
-                
-
-                st.success("API key loaded successfully! 🔑")
-            except Exception as e:
-                st.error("Failed to decrypt API key. Wrong password? 🔒")
-        if encrypted_key_gai:
-            try:
-                # Recreate encryption key
-                key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
-                fernet = Fernet(key)
-                
-                # Decrypt the saved key
-
-                decrypted_key_gai = fernet.decrypt(encrypted_key_gai.encode()).decode()
-                api_key_gai = decrypted_key_gai
-                st.session_state.saved_api_key_gai = api_key_gai
-                
-                st.success("Gemini API key loaded successfully! 🔑")
-            except Exception as e:
-                st.error("Failed to decrypt Gemini API key. Wrong password? 🔒")
-
-
-        else:
-            st.warning("No saved API key found. Please enter your API key first. 🔑")
-
-    # Add clear saved key button
-    if st.button("🗑️ Clear Saved API Key"):
-        deleted_files = False
-        error_message = ""
-        if not username:
-            username = 'anon'
-        filename = f"{username}_encrypted_api_key"
-        if os.path.exists(filename):
-            try:
-                os.remove(filename)
-                deleted_files = True
-                st.success(f"Deleted key file for user: {username}")
-            except Exception as e:
-                error_message += f"Error clearing {filename}: {str(e)}\n"
-                filename = f"{username}_encrypted_api_key"
-        filename = f"{username}_gai_encrypted_api_key"
-        if os.path.exists(filename):
-            try:
-                os.remove(filename)
-                deleted_files = True
-                st.success(f"Deleted key file for user: {username}")
-            except Exception as e:
-                error_message += f"Error clearing {filename}: {str(e)}\n"
-        
-        
-        # Show appropriate message
-        if deleted_files:
-            st.info("Session cleared. Reloading page...")
-            time.sleep(1)  # Brief pause so user can see the message
             st.rerun()
-        elif error_message:
-            st.error(error_message)
+
+    # --- Load Saved API Key (from encrypted file) ---
+    if st.button("🔐 Load Saved API Key(s)"):
+        if not username or not user_password:
+            st.error("Please enter both username and password to load saved API key(s).")
         else:
-            st.warning("No saved API keys found to delete.")
+            key = base64.urlsafe_b64encode(user_password.ljust(32)[:32].encode())
+            fernet = Fernet(key)
+            error = False
+            try:
+                if openai_file_exists:
+                    encrypted_key = load_encrypted_key(username_display)
+                    decrypted_key = fernet.decrypt(encrypted_key.encode()).decode()
+                    st.session_state.saved_api_key = decrypted_key
+                    st.success("OpenAI API key loaded from encrypted file! 🔑")
+                if gemini_file_exists:
+                    encrypted_key_gai = load_encrypted_key(username_display+'_gai')
+                    decrypted_key_gai = fernet.decrypt(encrypted_key_gai.encode()).decode()
+                    st.session_state.saved_api_key_gai = decrypted_key_gai
+                    st.success("Gemini API key loaded from encrypted file! 🔑")
+            except Exception as e:
+                st.error("Failed to decrypt API key(s): Please check your username and password.")
+                error = True
+            if not error:
+                st.rerun()
+
+    # --- Clear Saved API Key (delete encrypted file and clear session) ---
+    if (openai_file_exists or gemini_file_exists):
+        if st.button("🗑️ Clear Saved API Key(s)"):
+            deleted_files = False
+            error_message = ""
+            try:
+                if openai_file_exists:
+                    os.remove(openai_file)
+                    deleted_files = True
+                if gemini_file_exists:
+                    os.remove(gemini_file)
+                    deleted_files = True
+            except Exception as e:
+                error_message += f"Error clearing file: {str(e)}\n"
+            for k in ["saved_api_key", "saved_api_key_gai", "encrypted_key", "encrypted_key_gai"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            if deleted_files:
+                st.info("Saved API key(s) cleared. Reloading page...")
+                time.sleep(1)
+                st.rerun()
+            elif error_message:
+                st.error(error_message)
+            else:
+                st.warning("No saved API keys found to delete.")
     
     st.markdown("---")  # Add a separator for better visual organization
 
-    if st.session_state.vector_store is None:
-        embedding_status = st.empty()
-        
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
+    # --- RAG/Embedding Section ---
+    if "vector_store" not in st.session_state:
+        st.session_state.vector_store = None
+
+    embedding_status = st.empty()
+    index_path = "my_faiss_index"
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+
+    # Check if the FAISS index exists and load if not already loaded
+    if st.session_state.vector_store is None and os.path.exists(os.path.join(index_path, "index.faiss")):
+        embedding_status.info("🔄 Loading existing FAISS index...")
+        st.session_state.vector_store = FAISS.load_local(
+            folder_path=index_path,
+            embeddings=embeddings,
+            allow_dangerous_deserialization=True
         )
+        embedding_status.info("🔄 RAG ready")
 
-        index_path = "my_faiss_index"
-
-        # Check if the FAISS index directory exists and contains the index file
-        if os.path.exists(os.path.join(index_path, "index.faiss")):
-            embedding_status.info("🔄 Loading existing FAISS index...")
-            st.session_state.vector_store = FAISS.load_local(
-                        folder_path=index_path,
-                        embeddings=embeddings,
-                        allow_dangerous_deserialization=True
-            )
-            embedding_status.info("🔄 RAG ready")
-
-        else:
-            embedding_status.info("🔄 No stored embedding found, please genereate one")
+    # Show status and button
     if st.session_state.vector_store:
-        st.markdown("Embedding loaded from file. You can recreate it to include the newest RAG data")
+        st.markdown("✅ Embedding loaded from file. You can recreate it to include the newest RAG data 🔄")
+        if st.button("🔄 Regenerate embedding"):
+            # --- Embedding generation logic ---
+            embedding_status = st.empty()
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+            all_docs = get_all_docs_from_class_data()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            def sanitize(documents):
+                for doc in documents:
+                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                return documents
+            splits = text_splitter.split_documents(all_docs)
+            splits = sanitize(splits)
+            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+            embedding_status.empty()
+            st.session_state.vector_store.save_local("my_faiss_index")
+            st.rerun()
     else:
-        st.markdown("No embedding found, please create the embedding to use the agents!")
-    if st.button("🚀 Generate embedding"):
-        # First initialization without streaming
-
-        
-
-        embedding_status = st.empty()
-        embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-        #embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-        
-
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"  # small, fast, and works well
-        )
-
-        index_path = "my_faiss_index"
-
-        # Get all files from class-data directory
-        all_docs = []
-        for filename in os.listdir("./class-data"):
-            file_path = os.path.join("./class-data", filename)
-            
-            if filename.endswith('.pdf'):
-                # Handle PDF files
-                loader = PyPDFLoader(file_path)
-                docs = loader.load()
-                all_docs.extend(docs)
-            elif filename.endswith(('.txt', '.py', '.ini')):  # Added .py extension
-                # Handle text and Python files
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    text = f.read()
-                    # Create a document with metadata
-                    all_docs.append(Document(
-                        page_content=text,
-                        metadata={"source": filename, "type": "code" if filename.endswith('.py') else "text"}
-                    ))
-
-        # Split and process all documents
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        def sanitize(documents):
-            for doc in documents:
-                doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-            return documents
-            
-        splits = text_splitter.split_documents(all_docs)
-        splits = sanitize(splits)
-        
-        # Create vector store from all documents
-        st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-        embedding_status.empty()  # Clear the loading message
-
-        st.session_state.vector_store.save_local("my_faiss_index")
+        st.markdown("⚠️ No embedding found. Please create the embedding to use the agents! 🧠")
+        if st.button("🚀 Generate embedding"):
+            # --- Embedding generation logic ---
+            embedding_status = st.empty()
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+            all_docs = get_all_docs_from_class_data()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            def sanitize(documents):
+                for doc in documents:
+                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                return documents
+            splits = text_splitter.split_documents(all_docs)
+            splits = sanitize(splits)
+            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+            embedding_status.empty()
+            st.session_state.vector_store.save_local("my_faiss_index")
+            st.rerun()
 
     st.markdown("---")  # Add a separator for better visual organization
     
 
     # --- Model Lists ---
     GPT_MODELS = ["gpt-4o-mini", "gpt-4o"]
-    GEMINI_MODELS = ["gemini-2.5-pro-preview-05-06", "gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"]
+    GEMINI_MODELS = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"]
     ALL_MODELS = GPT_MODELS + GEMINI_MODELS
 
     st.session_state.selected_model = st.selectbox(
-        "4. Choose LLM model ��",
+        "4. Choose LLM model",
         options=ALL_MODELS,
         index=ALL_MODELS.index(st.session_state.selected_model)
     )
@@ -385,14 +362,20 @@ with st.sidebar:
         
 
     st.write("### Response Mode")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        mode_is_fast = st.toggle("Fast Mode", value=True)
-    with col2:
-        if mode_is_fast:
-            st.caption("✨ Quick responses with good quality (recommended for most uses)")
-        else:
-            st.caption("🎯 Multi-agent setup, more refined responses (takes longer)")
+    mode = st.radio(
+        "",
+        options=["Fast Mode", "Deep Thought Mode"],
+        index=0 if st.session_state.get("mode_is_fast", "Fast Mode") == "Fast Mode" else 1,
+        horizontal=True,
+        key="mode_is_fast"
+    )
+
+    st.markdown("<div style='height: 0.5em'></div>", unsafe_allow_html=True)
+    desc_cols = st.columns(2)
+    with desc_cols[0]:
+        st.caption("✨ **Fast Mode**: Single agent setup, quick responses with good quality.")
+    with desc_cols[1]:
+        st.caption("🎯 **Deep Thought Mode**: Multi-agent setup, more refined responses, takes longer.")
     
 
 
@@ -917,28 +900,18 @@ code_executor_gai = ConversableAgent(
 )
 
 def call_ai(context, user_input):
-    if mode_is_fast:
+    if st.session_state.mode_is_fast == "Fast Mode":
         messages = build_messages(context, user_input, Initial_Agent_Instructions)
-
         response = []
-
         for chunk in st.session_state.llm.stream(messages):
             response.append(chunk.content)  # or chunk if using token chunks
 
         response = "".join(response)
         return Response(content=response)
-        #response = st.session_state.llm.invoke(messages)
-        #return Response(content=response.content)
     else:
         # New Groupchat Workflow for detailed mode
         st.markdown("Thinking (Deep Thought Mode)... ")
-
-        if st.session_state.selected_model in GEMINI_MODELS:
-            st.markdown("Deep thought mode ony works reliably with openai at this point. If using gemini it may not work reliable or even at all")
-
-        # Format the conversation history for context
         conversation_history = format_memory_messages(st.session_state.memory.messages)
-
         shared_context = ContextVariables(data =  {
             "user_prompt": user_input,
             "best_answer": "",
@@ -946,16 +919,13 @@ def call_ai(context, user_input):
             "rating": None,
             "revisions": 0,
         })
-
         if st.session_state.selected_model in GEMINI_MODELS:
-
             pattern = AutoPattern(
                 initial_agent=initial_agent_gai,  # Agent that starts the conversation
                 agents=[initial_agent_gai,review_agent_gai,refine_agent_gai,formatting_agent_gai],
                 group_manager_args={"llm_config": initial_config_gai},
                 context_variables=shared_context,
             )
-
         else:
             pattern = AutoPattern(
                 initial_agent=initial_agent,  # Agent that starts the conversation
@@ -963,16 +933,12 @@ def call_ai(context, user_input):
                 group_manager_args={"llm_config": initial_config},
                 context_variables=shared_context,
             )
-
-
         st.markdown("Generating answer...")
-
         result, context_variables, last_agent = initiate_group_chat(
             pattern=pattern,
             messages=f"Context from documents: {context}\n\nConversation history:\n{conversation_history}\n\nUser question: {user_input}",
             max_rounds=10,
         )
-
         formatted_answer = None  # default to nothing
 
         # 1. If the formatting agent gave the last reply, use that
@@ -1058,7 +1024,7 @@ if user_input:
         
         # Initialization with streaming
        
-        if mode_is_fast:
+        if st.session_state.mode_is_fast == "Fast Mode":
 
             if st.session_state.selected_model in GEMINI_MODELS:
 
@@ -1247,7 +1213,7 @@ if user_input:
                     response = Response(content="No code found to execute in the previous messages.")
         else:
             response = call_ai(context, user_input)
-            if not mode_is_fast:
+            if st.session_state.mode_is_fast != "Fast Mode":
                 st.markdown(response.content)
 
         st.session_state.memory.add_ai_message(response.content)
@@ -1325,3 +1291,5 @@ if st.session_state.debug:
             st.markdown(context)
         else:
             st.markdown("No context retrieved yet.")
+
+# Utility function to gather all docs from class-data
