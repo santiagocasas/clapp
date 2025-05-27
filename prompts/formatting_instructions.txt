@@ -14,6 +14,7 @@ Your responsibilities include:
    - For plots, always save figures to disk in png format with savefig method
    - Do not use '.show()' for plots
    - Use plt.savefig("plot.png")
+   - Do not use fig.savefig()
    - For plots, add relevant units to axes labels
    - Use 'ax.relim()' and 'ax.autoscale_view()' methods when possible
    - Print a concise description of the plot when saving
