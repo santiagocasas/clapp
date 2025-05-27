@@ -128,6 +128,10 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.image("images/CLAPP.png", width=400)
 
+# --- Model Lists ---
+GPT_MODELS = ["gpt-4.1-nano", "gpt-4.1-mini-2025-04-14", "gpt-4.1", "gpt-4o-mini", "gpt-4o"]
+GEMINI_MODELS = [ "gemini-2.0-flash", "gemini-1.5-flash","gemini-2.5-flash-preview-05-20"]
+#ALL_MODELS = GPT_MODELS + GEMINI_MODELS
 
 # New prompts for the swarm
 Initial_Agent_Instructions = read_prompt_from_file("prompts/class_instructions.txt") # Reuse or adapt class_instructions
@@ -246,6 +250,12 @@ with st.sidebar:
                 st.error("Failed to decrypt API key(s): Please check your username and password.")
                 error = True
             if not error:
+                # Set llm_initialized if a key is loaded and a model is selected
+                if (
+                    (st.session_state.saved_api_key and st.session_state.selected_model in GPT_MODELS) or
+                    (st.session_state.saved_api_key_gai and st.session_state.selected_model in GEMINI_MODELS)
+                ):
+                    st.session_state.llm_initialized = True
                 st.rerun()
 
     # --- Clear Saved API Key (delete encrypted file and clear session) ---
@@ -284,10 +294,6 @@ with st.sidebar:
 
     
 
-    # --- Model Lists ---
-    GPT_MODELS = ["gpt-4o-mini", "gpt-4o"]
-    GEMINI_MODELS = [ "gemini-2.0-flash", "gemini-1.5-flash","gemini-2.5-flash-preview-05-20"]
-    #ALL_MODELS = GPT_MODELS + GEMINI_MODELS
 
     OPTIONS = []
     if api_key_gai:
@@ -345,9 +351,64 @@ with st.sidebar:
     else:
         st.session_state.mode_is_fast = "Fast Mode"
 
-        
 
+    st.markdown("---")  # Add a separator for better visual organization
 
+    # --- Helper for RAG Embedding Generation ---
+    def generate_and_save_embedding(index_path):
+        from langchain_huggingface import HuggingFaceEmbeddings
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"}
+        )
+        all_docs = get_all_docs_from_class_data()
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        def sanitize(documents):
+            for doc in documents:
+                doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+            return documents
+        splits = text_splitter.split_documents(all_docs)
+        splits = sanitize(splits)
+        st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+        st.session_state.vector_store.save_local(index_path)
+    
+    # --- RAG/Embedding Section ---
+    if "vector_store" not in st.session_state:
+        st.session_state.vector_store = None
+
+    embedding_status = st.empty()
+    index_path = "my_faiss_index"
+    index_file = os.path.join(index_path, "index.faiss")
+    index_exists = os.path.exists(index_file)
+
+    if st.session_state.vector_store:
+        st.markdown("✅ Embedding loaded from file")
+        if st.button("🔄 Regenerate embedding"):
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+            generate_and_save_embedding(index_path)
+            embedding_status.empty()
+            st.rerun()
+    elif index_exists:
+        st.markdown("🗂️ Embedding file found on disk, but not loaded. Please load the embedding to use the agents!")
+        if st.button("📥 Load embedding from disk"):
+            from langchain_huggingface import HuggingFaceEmbeddings
+            embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={"device": "cpu"}
+            )
+            st.session_state.vector_store = FAISS.load_local(
+                folder_path=index_path,
+                embeddings=embeddings,
+                allow_dangerous_deserialization=True
+            )
+            st.rerun()
+    else:
+        st.markdown("⚠️ No embedding found. Please create the embedding to use the agents!")
+        if st.button("🚀 Generate embedding"):
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+            generate_and_save_embedding(index_path)
+            embedding_status.empty()
+            st.rerun()
 
     st.markdown("---")  # Add a separator for better visual organization
     
@@ -496,71 +557,6 @@ with st.sidebar:
         except Exception as e:
             status_placeholder.error(f"Test failed with exception: {str(e)}")
             st.exception(e)  # Show the full exception for debugging
-
-    st.markdown("---")  # Add a separator for better visual organization
-
-    # --- RAG/Embedding Section ---
-    if "vector_store" not in st.session_state:
-        st.session_state.vector_store = None
-
-    embedding_status = st.empty()
-    index_path = "my_faiss_index"
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device": "cpu"}
-    )
-
-    # Check if the FAISS index exists and load if not already loaded
-    if st.session_state.vector_store is None and os.path.exists(os.path.join(index_path, "index.faiss")):
-        embedding_status.info("🔄 Loading existing FAISS index...")
-        st.session_state.vector_store = FAISS.load_local(
-            folder_path=index_path,
-            embeddings=embeddings,
-            allow_dangerous_deserialization=True
-        )
-        embedding_status.info("🔄 RAG ready")
-
-    # Show status and button
-    if st.session_state.vector_store:
-        st.markdown("✅ Embedding loaded from file. You can recreate it to include the newest RAG data 🔄")
-        if st.button("🔄 Regenerate embedding"):
-            # --- Embedding generation logic ---
-            embedding_status = st.empty()
-            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-            all_docs = get_all_docs_from_class_data()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            def sanitize(documents):
-                for doc in documents:
-                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                return documents
-            splits = text_splitter.split_documents(all_docs)
-            splits = sanitize(splits)
-            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-            embedding_status.empty()
-            st.session_state.vector_store.save_local("my_faiss_index")
-            st.rerun()
-    else:
-        st.markdown("⚠️ No embedding found. Please create the embedding to use the agents! 🧠")
-        if st.button("🚀 Generate embedding"):
-            # --- Embedding generation logic ---
-            embedding_status = st.empty()
-            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-            all_docs = get_all_docs_from_class_data()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            def sanitize(documents):
-                for doc in documents:
-                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                return documents
-            splits = text_splitter.split_documents(all_docs)
-            splits = sanitize(splits)
-            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-            embedding_status.empty()
-            st.session_state.vector_store.save_local("my_faiss_index")
-            st.rerun()
-        
-        # Initialize only after model is selected
-    
-
     
     st.markdown("---")  # Add a separator for better visual organization
     st.session_state.debug = st.checkbox("🔍 Show Debug Info")
