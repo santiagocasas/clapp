@@ -1100,44 +1100,46 @@ if user_input:
         if user_input.strip().lower() == "execute!":
 
 
-            if st.session_state.selected_model in GEMINI_MODELS:
-                st.markdown("Code execution only supprted in openai at the moment")
-                response = Response(content="Cannot excecute code with gemini api")
-            else:
+            #if st.session_state.selected_model in GEMINI_MODELS:
+            #    st.markdown("Code execution only supprted in openai at the moment")
+            #    response = Response(content="Cannot excecute code with gemini api")
+            #else:
                 # Find the last assistant message containing code
-                last_assistant_message = None
-                for message in reversed(st.session_state.messages):
-                    if message["role"] == "assistant" and "```" in message["content"]:
-                        last_assistant_message = message["content"]
-                        break
+            last_assistant_message = None
+            for message in reversed(st.session_state.messages):
+                if message["role"] == "assistant" and "```" in message["content"]:
+                    last_assistant_message = message["content"]
+                    break
+            
+            if last_assistant_message:
+                st.markdown("Executing code...")
+                st.info("🚀 Executing cleaned code...")
+                #chat_result = code_executor.initiate_chat(
+                #    recipient=code_executor,
+                #    message=f"Please execute this code:\n{last_assistant_message}",
+                #    max_turns=1,
+                #    summary_method="last_msg"
+                #)
+                #execution_output = chat_result.summary
+                execution_output, plot_path = executor.execute_code(last_assistant_message)
+                st.subheader("Execution Output")
+                st.text(execution_output)  # now contains both STDOUT and STDERR
                 
-                if last_assistant_message:
-                    st.markdown("Executing code...")
-                    st.info("🚀 Executing cleaned code...")
-                    #chat_result = code_executor.initiate_chat(
-                    #    recipient=code_executor,
-                    #    message=f"Please execute this code:\n{last_assistant_message}",
-                    #    max_turns=1,
-                    #    summary_method="last_msg"
-                    #)
-                    #execution_output = chat_result.summary
-                    execution_output, plot_path = executor.execute_code(last_assistant_message)
-                    st.subheader("Execution Output")
-                    st.text(execution_output)  # now contains both STDOUT and STDERR
-                    
-                    if os.path.exists(plot_path):
-                        st.success("✅ Plot generated successfully!")
-                        # Display the plot
-                        #st.image(plot_path, use_container_width=True)
-                        st.image(plot_path, width=700)
-                    else:
-                        st.warning("⚠️ No plot was generated")
-                    
+                if os.path.exists(plot_path):
+                    st.success("✅ Plot generated successfully!")
+                    # Display the plot
+                    #st.image(plot_path, use_container_width=True)
+                    st.image(plot_path, width=700)
+                else:
+                    st.warning("⚠️ No plot was generated")
+                
+                has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
+
+                if st.session_state.mode_is_fast != 'Fast Mode' and st.session_state.selected_model in GPT_MODELS:
                     # Check for errors and iterate if needed
                     max_iterations = 3  # Maximum number of iterations to prevent infinite loops
                     current_iteration = 0
-                    has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
-
+                    
                     while has_errors and current_iteration < max_iterations:
                         current_iteration += 1
                         st.error(f"Previous error: {execution_output}")  # Show the actual error message
@@ -1230,33 +1232,33 @@ if user_input:
                         last_assistant_message = formatted_answer
                         has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
 
-                    if has_errors:
-                        st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
-                        st.markdown(f"> ❌ Last execution message:\n{execution_output}")
+                if has_errors:
+                    st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
+                    st.markdown(f"> ❌ Last execution message:\n{execution_output}")
+                    response = Response(content=f"Execution completed with errors:\n{execution_output}")
+                else:
+                    # Check for common error indicators in the output
+                    if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
+                        st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
+                        st.markdown(f"> ❌ Execution message:\n{execution_output}")
                         response = Response(content=f"Execution completed with errors:\n{execution_output}")
                     else:
-                        # Check for common error indicators in the output
-                        if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
-                            st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
-                            st.markdown(f"> ❌ Execution message:\n{execution_output}")
-                            response = Response(content=f"Execution completed with errors:\n{execution_output}")
-                        else:
-                            st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
+                        st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
+                        
+                        # Display the final code that was successfully executed
+                        with st.expander("View Successfully Executed Code", expanded=False):
+                            st.markdown(last_assistant_message)
                             
-                            # Display the final code that was successfully executed
-                            with st.expander("View Successfully Executed Code", expanded=False):
-                                st.markdown(last_assistant_message)
-                                
-                            # Create a response message that includes the plot path
-                            response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
+                        # Create a response message that includes the plot path
+                        response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
+                        
+                        # Add plot path marker for rendering in the conversation
+                        if os.path.exists(plot_path):
+                            response_text += f"\n\nPLOT_PATH:{plot_path}\n"
                             
-                            # Add plot path marker for rendering in the conversation
-                            if os.path.exists(plot_path):
-                                response_text += f"\n\nPLOT_PATH:{plot_path}\n"
-                                
-                            response = Response(content=response_text)
-                else:
-                    response = Response(content="No code found to execute in the previous messages.")
+                        response = Response(content=response_text)
+            else:
+                response = Response(content="No code found to execute in the previous messages.")
         else:
             response = call_ai(context, user_input)
             if st.session_state.mode_is_fast != "Fast Mode":
