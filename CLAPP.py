@@ -946,7 +946,16 @@ def call_ai(context, user_input):
             response.append(chunk.content)  # or chunk if using token chunks
 
         response = "".join(response)
-        return Response(content=response)
+
+        # Check if the answer contains code
+        if "```python" in response:
+            # Add a note about code execution
+            response += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
+            return Response(content=response)
+        else:
+            return Response(content=response)
+
+        #return Response(content=response)
     else:
         # New Groupchat Workflow for detailed mode
         st.markdown("Thinking (Deep Thought Mode)... ")
@@ -1093,7 +1102,7 @@ if user_input:
        
 
         # Check if this is an execution request
-        if user_input.strip().lower() == "execute!":
+        if user_input.strip().lower() == "execute!" or user_input.strip().lower() == "plot!":
 
 
             #if st.session_state.selected_model in GEMINI_MODELS:
@@ -1131,120 +1140,130 @@ if user_input:
                 
                 has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
 
-                if st.session_state.mode_is_fast != 'Fast Mode' and st.session_state.selected_model in GPT_MODELS:
-                    # Check for errors and iterate if needed
-                    max_iterations = 3  # Maximum number of iterations to prevent infinite loops
-                    current_iteration = 0
-                    
-                    while has_errors and current_iteration < max_iterations:
-                        current_iteration += 1
-                        st.error(f"Previous error: {execution_output}")  # Show the actual error message
-                        st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
+                
+                # Check for errors and iterate if needed
+                max_iterations = 3  # Maximum number of iterations to prevent infinite loops
+                current_iteration = 0
+                
+                while has_errors and current_iteration < max_iterations:
+                    current_iteration += 1
+                    st.error(f"Previous error: {execution_output}")  # Show the actual error message
+                    st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
 
-                        # Get new review with error information
-                        #review_message = f"""
-                        #Previous answer had errors during execution:
-                        #{execution_output}
+                    # Get new review with error information
+                    #review_message = f"""
+                    #Previous answer had errors during execution:
+                    #{execution_output}
 
-                        #Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
-                        #{last_assistant_message}
-                        #"""
-                        #chat_result_2 = review_agent.initiate_chat(
-                        #    recipient=review_agent,
-                        #    message=review_message,
-                        #    max_turns=1,
-                        #    summary_method="last_msg"
-                        #)
-                        #review_feedback = chat_result_2.summary
-                        #if st.session_state.debug:
-                        #    st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
+                    #Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+                    #{last_assistant_message}
+                    #"""
+                    #chat_result_2 = review_agent.initiate_chat(
+                    #    recipient=review_agent,
+                    #    message=review_message,
+                    #    max_turns=1,
+                    #    summary_method="last_msg"
+                    #)
+                    #review_feedback = chat_result_2.summary
+                    #if st.session_state.debug:
+                    #    st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
 
-                        # Get corrected version
-                        #chat_result_3 = initial_agent.initiate_chat(
-                        #    recipient=initial_agent,
-                        #    message=f"""Original answer: {last_assistant_message}
-                        #    Review feedback with error fixes: {review_feedback}
-                        #    IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
-                        #    max_turns=1,
-                        #    summary_method="last_msg"
-                        #)
-                        #corrected_answer = chat_result_3.summary
-                        #if st.session_state.debug:
-                        #    st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
+                    # Get corrected version
+                    #chat_result_3 = initial_agent.initiate_chat(
+                    #    recipient=initial_agent,
+                    #    message=f"""Original answer: {last_assistant_message}
+                    #    Review feedback with error fixes: {review_feedback}
+                    #    IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
+                    #    max_turns=1,
+                    #    summary_method="last_msg"
+                    #)
+                    #corrected_answer = chat_result_3.summary
+                    #if st.session_state.debug:
+                    #    st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
 
-                        # Format the corrected answer
-                        #chat_result_4 = formatting_agent.initiate_chat(
-                        #    recipient=formatting_agent,
-                        #    message=f"""Please format this corrected answer while preserving all code blocks:
-                        #    {corrected_answer}
-                        #    """,
-                        #    max_turns=1,
-                        #    summary_method="last_msg"
-                        #)
-                        #formatted_answer = chat_result_4.summary
-                        #if st.session_state.debug:
-                        #    st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
+                    # Format the corrected answer
+                    #chat_result_4 = formatting_agent.initiate_chat(
+                    #    recipient=formatting_agent,
+                    #    message=f"""Please format this corrected answer while preserving all code blocks:
+                    #    {corrected_answer}
+                    #    """,
+                    #    max_turns=1,
+                    #    summary_method="last_msg"
+                    #)
+                    #formatted_answer = chat_result_4.summary
+                    #if st.session_state.debug:
+                    #    st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
 
-                        review_message = f"""
-                        Previous answer had errors during execution:
-                        {execution_output}
+                    review_message = f"""
+                    Previous answer had errors during execution:
+                    {execution_output}
 
-                        Please modify the code to fix those errors. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
-                        {last_assistant_message}
-                        """
-                        chat_result_2 = refine_agent.initiate_chat(
+                    Please modify the code to fix those errors. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+                    {last_assistant_message}
+                    """
+
+                    if st.session_state.selected_model in GEMINI_MODELS:
+                        chat_result = refine_agent_gai.initiate_chat(
+                            recipient=refine_agent_gai,
+                            message=review_message,
+                            max_turns=1,
+                            summary_method="last_msg"
+                        )
+                    else:
+                        chat_result = refine_agent.initiate_chat(
                             recipient=refine_agent,
                             message=review_message,
                             max_turns=1,
                             summary_method="last_msg"
                         )
-                        formatted_answer = chat_result_2.summary
-                        if st.session_state.debug:
-                            st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
+
+                    formatted_answer = chat_result.summary
+                    if st.session_state.debug:
+                        st.session_state.debug_messages.append(("Error Review Feedback", formatted_answer))
 
 
-                        # Execute the corrected code
-                        st.info("🚀 Executing corrected code...")
-                        #chat_result = code_executor.initiate_chat(
-                        #    recipient=code_executor,
-                        #    message=f"Please execute this corrected code:\n{formatted_answer}",
-                        #    max_turns=1,
-                        #    summary_method="last_msg"
-                        #)
-                        #execution_output = chat_result.summary
-                        execution_output, plot_path = executor.execute_code(formatted_answer)
-                        st.subheader("Execution Output")
-                        st.text(execution_output)  # now contains both STDOUT and STDERR
+                    # Execute the corrected code
+                    st.info("🚀 Executing corrected code...")
+                    #chat_result = code_executor.initiate_chat(
+                    #    recipient=code_executor,
+                    #    message=f"Please execute this corrected code:\n{formatted_answer}",
+                    #    max_turns=1,
+                    #    summary_method="last_msg"
+                    #)
+                    #execution_output = chat_result.summary
+                    execution_output, plot_path = executor.execute_code(formatted_answer)
+                    st.subheader("Execution Output")
+                    st.text(execution_output)  # now contains both STDOUT and STDERR
+                    
+                    if os.path.exists(plot_path):
+                        st.success("✅ Plot generated successfully!")
+                        # Display the plot
+                        st.image(plot_path, width=700)
+                    else:
+                        st.warning("⚠️ No plot was generated")
+                    
+                    if st.session_state.debug:
+                        st.session_state.debug_messages.append(("Execution Output", execution_output))
+                    
+                    # If we've reached the end of iterations and we're successful
+                    if not has_errors or current_iteration == max_iterations:
+                        # Add successful execution to the conversation with plot
+                        final_answer = formatted_answer if formatted_answer else last_assistant_message
+                        response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
                         
+                        # Add plot path marker for rendering in the conversation
                         if os.path.exists(plot_path):
-                            st.success("✅ Plot generated successfully!")
-                            # Display the plot
-                            st.image(plot_path, width=700)
-                        else:
-                            st.warning("⚠️ No plot was generated")
-                        
-                        if st.session_state.debug:
-                            st.session_state.debug_messages.append(("Execution Output", execution_output))
-                        
-                        # If we've reached the end of iterations and we're successful
-                        if not has_errors or current_iteration == max_iterations:
-                            # Add successful execution to the conversation with plot
-                            final_answer = formatted_answer if formatted_answer else last_assistant_message
-                            response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
+                            response_text += f"\n\nPLOT_PATH:{plot_path}\n"
                             
-                            # Add plot path marker for rendering in the conversation
-                            if os.path.exists(plot_path):
-                                response_text += f"\n\nPLOT_PATH:{plot_path}\n"
-                                
-                            if current_iteration > 0:
-                                response_text = f"After {current_iteration} correction attempts: " + response_text
-                            
-                            # Set the response variable with our constructed text that includes plot
-                            response = Response(content=response_text)
+                        if current_iteration > 0:
+                            response_text = f"After {current_iteration} correction attempts: " + response_text
                         
-                        # Update last_assistant_message with the formatted answer for next iteration
-                        last_assistant_message = formatted_answer
-                        has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
+                        # Set the response variable with our constructed text that includes plot
+                        response = Response(content=response_text)
+                    
+                    # Update last_assistant_message with the formatted answer for next iteration
+                    last_assistant_message = formatted_answer
+                    has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
 
                 if has_errors:
                     st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
