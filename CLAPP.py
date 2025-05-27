@@ -390,7 +390,7 @@ with st.sidebar:
             st.rerun()
     elif index_exists:
         st.markdown("🗂️ Embedding file found on disk, but not loaded. Please load the embedding to use the agents!")
-        if st.button("📥 Load embedding from disk"):
+        with st.spinner("Loading embeddings..."):
             from langchain_huggingface import HuggingFaceEmbeddings
             embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
@@ -712,7 +712,7 @@ executor = PlotAwareExecutor(timeout=10)
 
 
 
-def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"],feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
+def review_reply(reply: Annotated[str,"The previously generated reply to the user prompt by the initial agent"],feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
                   , rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], context_variables: ContextVariables) -> ReplyResult:
     """Review the reply of the Ai Agent to the user prompt with respect to correctness, clarity and relevance for the user prompt"""
     
@@ -1142,48 +1142,66 @@ if user_input:
                         st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
 
                         # Get new review with error information
+                        #review_message = f"""
+                        #Previous answer had errors during execution:
+                        #{execution_output}
+
+                        #Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+                        #{last_assistant_message}
+                        #"""
+                        #chat_result_2 = review_agent.initiate_chat(
+                        #    recipient=review_agent,
+                        #    message=review_message,
+                        #    max_turns=1,
+                        #    summary_method="last_msg"
+                        #)
+                        #review_feedback = chat_result_2.summary
+                        #if st.session_state.debug:
+                        #    st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
+
+                        # Get corrected version
+                        #chat_result_3 = initial_agent.initiate_chat(
+                        #    recipient=initial_agent,
+                        #    message=f"""Original answer: {last_assistant_message}
+                        #    Review feedback with error fixes: {review_feedback}
+                        #    IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
+                        #    max_turns=1,
+                        #    summary_method="last_msg"
+                        #)
+                        #corrected_answer = chat_result_3.summary
+                        #if st.session_state.debug:
+                        #    st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
+
+                        # Format the corrected answer
+                        #chat_result_4 = formatting_agent.initiate_chat(
+                        #    recipient=formatting_agent,
+                        #    message=f"""Please format this corrected answer while preserving all code blocks:
+                        #    {corrected_answer}
+                        #    """,
+                        #    max_turns=1,
+                        #    summary_method="last_msg"
+                        #)
+                        #formatted_answer = chat_result_4.summary
+                        #if st.session_state.debug:
+                        #    st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
+
                         review_message = f"""
                         Previous answer had errors during execution:
                         {execution_output}
 
-                        Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+                        Please modify the code to fix those errors. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
                         {last_assistant_message}
                         """
-                        chat_result_2 = review_agent.initiate_chat(
-                            recipient=review_agent,
+                        chat_result_2 = refine_agent.initiate_chat(
+                            recipient=refine_agent,
                             message=review_message,
                             max_turns=1,
                             summary_method="last_msg"
                         )
-                        review_feedback = chat_result_2.summary
+                        formatted_answer = chat_result_2.summary
                         if st.session_state.debug:
                             st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
 
-                        # Get corrected version
-                        chat_result_3 = initial_agent.initiate_chat(
-                            recipient=initial_agent,
-                            message=f"""Original answer: {last_assistant_message}
-                            Review feedback with error fixes: {review_feedback}
-                            IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
-                            max_turns=1,
-                            summary_method="last_msg"
-                        )
-                        corrected_answer = chat_result_3.summary
-                        if st.session_state.debug:
-                            st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
-
-                        # Format the corrected answer
-                        chat_result_4 = formatting_agent.initiate_chat(
-                            recipient=formatting_agent,
-                            message=f"""Please format this corrected answer while preserving all code blocks:
-                            {corrected_answer}
-                            """,
-                            max_turns=1,
-                            summary_method="last_msg"
-                        )
-                        formatted_answer = chat_result_4.summary
-                        if st.session_state.debug:
-                            st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
 
                         # Execute the corrected code
                         st.info("🚀 Executing corrected code...")
