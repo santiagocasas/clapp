@@ -151,7 +151,7 @@ def init_session():
     if "last_token_count" not in st.session_state:
         st.session_state.last_token_count = 0
     if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "gpt-4o-mini"
+        st.session_state.selected_model = None
     if "greeted" not in st.session_state:
         st.session_state.greeted = False
     if "debug_messages" not in st.session_state:
@@ -172,14 +172,14 @@ with st.sidebar:
     api_key = st.text_input("1. OpenAI API Key", type="password")
     api_key_gai = st.text_input("1. Gemini API Key", type="password")
 
-    # --- Load API Key (direct, no encryption) ---
-    if st.button("🔓 Load API Key(s) into session"):
-        if api_key:
-            st.session_state.saved_api_key = api_key
-        if api_key_gai:
-            st.session_state.saved_api_key_gai = api_key_gai
-        st.success("API key(s) loaded into session.")
-        st.rerun()
+    ## --- Load API Key (direct, no encryption) ---
+    #if st.button("🔓 Load API Key(s) into session"):
+    if api_key:
+        st.session_state.saved_api_key = api_key
+    if api_key_gai:
+        st.session_state.saved_api_key_gai = api_key_gai
+    #    st.success("API key(s) loaded into session.")
+    #    st.rerun()
 
     username = st.text_input("2. Username (for loading or saving API key)", placeholder="Enter your username")
     user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
@@ -196,8 +196,8 @@ with st.sidebar:
     gemini_loaded = bool(st.session_state.get("saved_api_key_gai"))
 
     # Status display
-    st.markdown(f"OpenAI Key: {'✅ Loaded' if openai_loaded else '❌ Not loaded'} | Encrypted: {'🗄️' if openai_file_exists else '—'}")
-    st.markdown(f"Gemini Key: {'✅ Loaded' if gemini_loaded else '❌ Not loaded'} | Encrypted: {'🗄️' if gemini_file_exists else '—'}")
+    st.markdown(f"OpenAI Key: {'✅ Ready' if openai_loaded else '❌ No Keys'} | Saved: {'🗄️' if openai_file_exists else '—'}")
+    st.markdown(f"Gemini Key: {'✅ Ready' if gemini_loaded else '❌ No Keys'} | Saved: {'🗄️' if gemini_file_exists else '—'}")
 
     # --- Save API Key as encrypted file ---
     if (openai_loaded or gemini_loaded) and user_password and username and (not openai_file_exists or not gemini_file_exists):
@@ -234,11 +234,13 @@ with st.sidebar:
                     encrypted_key = load_encrypted_key(username_display)
                     decrypted_key = fernet.decrypt(encrypted_key.encode()).decode()
                     st.session_state.saved_api_key = decrypted_key
+                    
                     st.success("OpenAI API key loaded from encrypted file! 🔑")
                 if gemini_file_exists:
                     encrypted_key_gai = load_encrypted_key(username_display+'_gai')
                     decrypted_key_gai = fernet.decrypt(encrypted_key_gai.encode()).decode()
                     st.session_state.saved_api_key_gai = decrypted_key_gai
+   
                     st.success("Gemini API key loaded from encrypted file! 🔑")
             except Exception as e:
                 st.error("Failed to decrypt API key(s): Please check your username and password.")
@@ -272,80 +274,38 @@ with st.sidebar:
             else:
                 st.warning("No saved API keys found to delete.")
     
-    st.markdown("---")  # Add a separator for better visual organization
+    
+                     
+    if st.session_state.saved_api_key:
+        api_key = st.session_state.saved_api_key
+    if st.session_state.saved_api_key_gai:
+        api_key_gai = st.session_state.saved_api_key_gai
+    
 
-    # --- RAG/Embedding Section ---
-    if "vector_store" not in st.session_state:
-        st.session_state.vector_store = None
-
-    embedding_status = st.empty()
-    index_path = "my_faiss_index"
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device": "cpu"}
-    )
-
-    # Check if the FAISS index exists and load if not already loaded
-    if st.session_state.vector_store is None and os.path.exists(os.path.join(index_path, "index.faiss")):
-        embedding_status.info("🔄 Loading existing FAISS index...")
-        st.session_state.vector_store = FAISS.load_local(
-            folder_path=index_path,
-            embeddings=embeddings,
-            allow_dangerous_deserialization=True
-        )
-        embedding_status.info("🔄 RAG ready")
-
-    # Show status and button
-    if st.session_state.vector_store:
-        st.markdown("✅ Embedding loaded from file. You can recreate it to include the newest RAG data 🔄")
-        if st.button("🔄 Regenerate embedding"):
-            # --- Embedding generation logic ---
-            embedding_status = st.empty()
-            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-            all_docs = get_all_docs_from_class_data()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            def sanitize(documents):
-                for doc in documents:
-                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                return documents
-            splits = text_splitter.split_documents(all_docs)
-            splits = sanitize(splits)
-            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-            embedding_status.empty()
-            st.session_state.vector_store.save_local("my_faiss_index")
-            st.rerun()
-    else:
-        st.markdown("⚠️ No embedding found. Please create the embedding to use the agents! 🧠")
-        if st.button("🚀 Generate embedding"):
-            # --- Embedding generation logic ---
-            embedding_status = st.empty()
-            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
-            all_docs = get_all_docs_from_class_data()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            def sanitize(documents):
-                for doc in documents:
-                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
-                return documents
-            splits = text_splitter.split_documents(all_docs)
-            splits = sanitize(splits)
-            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
-            embedding_status.empty()
-            st.session_state.vector_store.save_local("my_faiss_index")
-            st.rerun()
-
-    st.markdown("---")  # Add a separator for better visual organization
     
 
     # --- Model Lists ---
     GPT_MODELS = ["gpt-4o-mini", "gpt-4o"]
-    GEMINI_MODELS = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"]
-    ALL_MODELS = GPT_MODELS + GEMINI_MODELS
+    GEMINI_MODELS = [ "gemini-2.0-flash", "gemini-1.5-flash","gemini-2.5-flash-preview-05-20"]
+    #ALL_MODELS = GPT_MODELS + GEMINI_MODELS
 
-    st.session_state.selected_model = st.selectbox(
-        "4. Choose LLM model",
-        options=ALL_MODELS,
-        index=ALL_MODELS.index(st.session_state.selected_model)
-    )
+    OPTIONS = []
+    if api_key_gai:
+        OPTIONS += GEMINI_MODELS
+    if api_key:
+        OPTIONS += GPT_MODELS
+
+    if OPTIONS:
+        st.markdown("---")  # Add a separator for better visual organization
+    
+        st.session_state.selected_model = OPTIONS[0]
+        st.session_state.selected_model = st.selectbox(
+            "4. Choose LLM model",
+            options=OPTIONS,
+            index=OPTIONS.index(st.session_state.selected_model)
+        )
+    else:
+        st.session_state.selected_model = None
 
 
     # Check if model has changed
@@ -365,28 +325,28 @@ with st.sidebar:
     elif st.session_state.selected_model in GPT_MODELS and api_key:
         st.session_state.llm_initialized = True
         
+    if OPTIONS:
+        st.write("### Response Mode")
+        mode = st.radio(
+            "",
+            options=["Fast Mode", "Deep Thought Mode"],
+            index=0 if st.session_state.get("mode_is_fast", "Fast Mode") == "Fast Mode" else 1,
+            horizontal=True,
+            key="mode_is_fast"
+        )
 
-    st.write("### Response Mode")
-    mode = st.radio(
-        "",
-        options=["Fast Mode", "Deep Thought Mode"],
-        index=0 if st.session_state.get("mode_is_fast", "Fast Mode") == "Fast Mode" else 1,
-        horizontal=True,
-        key="mode_is_fast"
-    )
-
-    st.markdown("<div style='height: 0.5em'></div>", unsafe_allow_html=True)
-    desc_cols = st.columns(2)
-    with desc_cols[0]:
-        st.caption("✨ **Fast Mode**: Single agent setup, quick responses with good quality.")
-    with desc_cols[1]:
-        st.caption("🎯 **Deep Thought Mode**: Multi-agent setup, more refined responses, takes longer.")
-    
-
+        st.markdown("<div style='height: 0.5em'></div>", unsafe_allow_html=True)
+        desc_cols = st.columns(2)
+        with desc_cols[0]:
+            st.caption("✨ **Fast Mode**: Single agent setup, quick responses with good quality.")
+        with desc_cols[1]:
+            st.caption("🎯 **Deep Thought Mode**: Multi-agent setup, more refined responses, takes longer.")
+        
+    else:
+        st.session_state.mode_is_fast = "Fast Mode"
 
         
-        # Initialize only after model is selected
-    
+
 
 
     st.markdown("---")  # Add a separator for better visual organization
@@ -536,6 +496,71 @@ with st.sidebar:
         except Exception as e:
             status_placeholder.error(f"Test failed with exception: {str(e)}")
             st.exception(e)  # Show the full exception for debugging
+
+    st.markdown("---")  # Add a separator for better visual organization
+
+    # --- RAG/Embedding Section ---
+    if "vector_store" not in st.session_state:
+        st.session_state.vector_store = None
+
+    embedding_status = st.empty()
+    index_path = "my_faiss_index"
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"}
+    )
+
+    # Check if the FAISS index exists and load if not already loaded
+    if st.session_state.vector_store is None and os.path.exists(os.path.join(index_path, "index.faiss")):
+        embedding_status.info("🔄 Loading existing FAISS index...")
+        st.session_state.vector_store = FAISS.load_local(
+            folder_path=index_path,
+            embeddings=embeddings,
+            allow_dangerous_deserialization=True
+        )
+        embedding_status.info("🔄 RAG ready")
+
+    # Show status and button
+    if st.session_state.vector_store:
+        st.markdown("✅ Embedding loaded from file. You can recreate it to include the newest RAG data 🔄")
+        if st.button("🔄 Regenerate embedding"):
+            # --- Embedding generation logic ---
+            embedding_status = st.empty()
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+            all_docs = get_all_docs_from_class_data()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            def sanitize(documents):
+                for doc in documents:
+                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                return documents
+            splits = text_splitter.split_documents(all_docs)
+            splits = sanitize(splits)
+            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+            embedding_status.empty()
+            st.session_state.vector_store.save_local("my_faiss_index")
+            st.rerun()
+    else:
+        st.markdown("⚠️ No embedding found. Please create the embedding to use the agents! 🧠")
+        if st.button("🚀 Generate embedding"):
+            # --- Embedding generation logic ---
+            embedding_status = st.empty()
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+            all_docs = get_all_docs_from_class_data()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            def sanitize(documents):
+                for doc in documents:
+                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode("utf-8")
+                return documents
+            splits = text_splitter.split_documents(all_docs)
+            splits = sanitize(splits)
+            st.session_state.vector_store = FAISS.from_documents(splits, embedding=embeddings)
+            embedding_status.empty()
+            st.session_state.vector_store.save_local("my_faiss_index")
+            st.rerun()
+        
+        # Initialize only after model is selected
+    
+
     
     st.markdown("---")  # Add a separator for better visual organization
     st.session_state.debug = st.checkbox("🔍 Show Debug Info")
@@ -690,61 +715,6 @@ executor = PlotAwareExecutor(timeout=10)
 # Global agent configurations
 
 
-initial_config = LLMConfig(
-    api_type="openai", 
-    model=st.session_state.selected_model,
-    temperature=0.2,  # Low temperature for consistent initial responses
-    api_key=api_key,
-)
-
-review_config = LLMConfig(
-    api_type="openai", 
-    model=st.session_state.selected_model, 
-    temperature=0.5,  # Higher temperature for creative reviews
-    api_key=api_key,
-    )
-
-formatting_config = LLMConfig(
-    api_type="openai", 
-    model=st.session_state.selected_model, 
-    temperature=0.1,  # Moderate temperature for formatting
-    api_key=api_key,
-)
-
-code_execution_config = LLMConfig(
-    api_type="openai", 
-    model=st.session_state.selected_model, 
-    temperature=0.1,  # Very low temperature for code execution
-    api_key=api_key,
-)
-
-initial_config_gai = LLMConfig(
-    api_type="google", 
-    model=st.session_state.selected_model,
-    temperature=0.2,  # Low temperature for consistent initial responses
-    api_key=api_key_gai,
-)
-
-review_config_gai = LLMConfig(
-    api_type="google", 
-    model=st.session_state.selected_model, 
-    temperature=0.5,  # Higher temperature for creative reviews
-    api_key=api_key_gai,
-)
-
-formatting_config_gai = LLMConfig(
-    api_type="google", 
-    model=st.session_state.selected_model, 
-    temperature=0.1,  # Moderate temperature for formatting
-    api_key=api_key_gai,
-)
-
-code_execution_config_gai = LLMConfig(
-    api_type="google", 
-    model=st.session_state.selected_model, 
-    temperature=0.1,  # Very low temperature for code execution
-    api_key=api_key_gai,
-)
 
 def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"],feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
                   , rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], context_variables: ContextVariables) -> ReplyResult:
@@ -781,128 +751,193 @@ def review_reply(reply: Annotated[str,"The reply to user prompt by an AI agent"]
             message=f'Please formatt the following reply: {reply}',
         )
 
-# Global agent instances with updated system messages
-initial_agent = ConversableAgent(
-    name="initial_agent",
-    system_message=Initial_Agent_Instructions,
-    description="Initial agent that answers user prompt",
-    human_input_mode="NEVER",
-    llm_config=initial_config
-)
-
-review_agent = ConversableAgent(
-    name="review_agent",    
-    update_agent_state_before_reply=[
-        UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-    ],
-    human_input_mode="NEVER",
-
-    description="Reviews the AI answer to user prompt",
-    llm_config=review_config,
-    functions=review_reply,
-)
-
-refine_agent = ConversableAgent(
-    name="improve_reply_agent",    
-    update_agent_state_before_reply=[
-        UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-    ],
-    human_input_mode="NEVER",
-
-    description="Improves the AI reply by taking into account the feedback",
-    llm_config=initial_config,   
-)
-
-formatting_agent = ConversableAgent(
-    name="formatting_agent",    
-    update_agent_state_before_reply=[
-        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
-    ],
-    human_input_mode="NEVER",
-
-    description="Formats the final reply for the user",
-    llm_config=formatting_config
-)
-
-# no other handoffs needed as rest will be determined by function call
-initial_agent.handoffs.set_after_work(AgentTarget(review_agent))
-refine_agent.handoffs.set_after_work(AgentTarget(review_agent))
-refine_agent.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
-
-formatting_agent.handoffs.set_after_work(TerminateTarget())
 
 
 
-code_executor = ConversableAgent(
-    name="code_executor",
-    system_message="""{Code_Execution_Agent_Instructions}""",
-    human_input_mode="NEVER",
-    llm_config=code_execution_config,
-    code_execution_config={"executor": executor},
-    max_consecutive_auto_reply=50
 
-)
+if st.session_state.selected_model in GPT_MODELS:
 
-# Global agent instances with updated system messages for gemini
-initial_agent_gai = ConversableAgent(
-    name="initial_agent",
-    system_message=Initial_Agent_Instructions,
+    initial_config = LLMConfig(
+        api_type="openai", 
+        model=st.session_state.selected_model,
+        temperature=0.2,  # Low temperature for consistent initial responses
+        api_key=api_key,
+    )
 
-    description="Initial agent that answers user prompt",
-    human_input_mode="NEVER",
-    llm_config=initial_config_gai
-)
+    review_config = LLMConfig(
+        api_type="openai", 
+        model=st.session_state.selected_model, 
+        temperature=0.5,  # Higher temperature for creative reviews
+        api_key=api_key,
+        )
 
-refine_agent_gai = ConversableAgent(
-    name="improve_reply_agent",    
-    update_agent_state_before_reply=[
-        UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-    ],
-    human_input_mode="NEVER",
+    formatting_config = LLMConfig(
+        api_type="openai", 
+        model=st.session_state.selected_model, 
+        temperature=0.1,  # Moderate temperature for formatting
+        api_key=api_key,
+    )
 
-    description="Improves the AI reply by taking into account the feedback",
-    llm_config=initial_config_gai,   
-)
+    code_execution_config = LLMConfig(
+        api_type="openai", 
+        model=st.session_state.selected_model, 
+        temperature=0.1,  # Very low temperature for code execution
+        api_key=api_key,
+    )
 
-review_agent_gai = ConversableAgent(
-    name="review_agent",    
-    update_agent_state_before_reply=[
-        UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-    ],
-    human_input_mode="NEVER",
+    # Global agent instances with updated system messages
+    initial_agent = ConversableAgent(
+        name="initial_agent",
+        system_message=Initial_Agent_Instructions,
+        description="Initial agent that answers user prompt",
+        human_input_mode="NEVER",
+        llm_config=initial_config
+    )
 
-    description="Reviews the AI answer to user prompt",
-    llm_config=review_config_gai,
-    #functions=review_reply,   # funcktions are often not working as planned with gemini
-)
+    review_agent = ConversableAgent(
+        name="review_agent",    
+        update_agent_state_before_reply=[
+            UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+        ],
+        human_input_mode="NEVER",
+
+        description="Reviews the AI answer to user prompt",
+        llm_config=review_config,
+        functions=review_reply,
+    )
+
+    refine_agent = ConversableAgent(
+        name="improve_reply_agent",    
+        update_agent_state_before_reply=[
+            UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+        ],
+        human_input_mode="NEVER",
+
+        description="Improves the AI reply by taking into account the feedback",
+        llm_config=initial_config,   
+    )
+
+    formatting_agent = ConversableAgent(
+        name="formatting_agent",    
+        update_agent_state_before_reply=[
+            UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
+        ],
+        human_input_mode="NEVER",
+
+        description="Formats the final reply for the user",
+        llm_config=formatting_config
+    )
+
+    # no other handoffs needed as rest will be determined by function call
+    initial_agent.handoffs.set_after_work(AgentTarget(review_agent))
+    refine_agent.handoffs.set_after_work(AgentTarget(review_agent))
+    refine_agent.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
+
+    formatting_agent.handoffs.set_after_work(TerminateTarget())
 
 
-formatting_agent_gai = ConversableAgent(
-    name="formatting_agent",    
-    update_agent_state_before_reply=[
-        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
-    ],
 
-    description="Formats the final reply for the user",
-    human_input_mode="NEVER",
-    llm_config=formatting_config_gai
-)
+    code_executor = ConversableAgent(
+        name="code_executor",
+        system_message="""{Code_Execution_Agent_Instructions}""",
+        human_input_mode="NEVER",
+        llm_config=code_execution_config,
+        code_execution_config={"executor": executor},
+        max_consecutive_auto_reply=50
 
-# no other handoffs needed as rest will be determined by function call
-initial_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
-review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
-refine_agent_gai.handoffs.set_after_work(AgentTarget(formatting_agent_gai))
-formatting_agent_gai.handoffs.set_after_work(TerminateTarget())
+    )
+
+if st.session_state.selected_model in GEMINI_MODELS:
+    initial_config_gai = LLMConfig(
+        api_type="google", 
+        model=st.session_state.selected_model,
+        temperature=0.2,  # Low temperature for consistent initial responses
+        api_key=api_key_gai,
+    )
+
+    review_config_gai = LLMConfig(
+        api_type="google", 
+        model=st.session_state.selected_model, 
+        temperature=0.5,  # Higher temperature for creative reviews
+        api_key=api_key_gai,
+    )
+
+    formatting_config_gai = LLMConfig(
+        api_type="google", 
+        model=st.session_state.selected_model, 
+        temperature=0.1,  # Moderate temperature for formatting
+        api_key=api_key_gai,
+    )
+
+    code_execution_config_gai = LLMConfig(
+        api_type="google", 
+        model=st.session_state.selected_model, 
+        temperature=0.1,  # Very low temperature for code execution
+        api_key=api_key_gai,
+    )
+
+    # Global agent instances with updated system messages for gemini
+    initial_agent_gai = ConversableAgent(
+        name="initial_agent",
+        system_message=Initial_Agent_Instructions,
+
+        description="Initial agent that answers user prompt",
+        human_input_mode="NEVER",
+        llm_config=initial_config_gai
+    )
+
+    refine_agent_gai = ConversableAgent(
+        name="improve_reply_agent",    
+        update_agent_state_before_reply=[
+            UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+        ],
+        human_input_mode="NEVER",
+
+        description="Improves the AI reply by taking into account the feedback",
+        llm_config=initial_config_gai,   
+    )
+
+    review_agent_gai = ConversableAgent(
+        name="review_agent",    
+        update_agent_state_before_reply=[
+            UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
+        ],
+        human_input_mode="NEVER",
+
+        description="Reviews the AI answer to user prompt",
+        llm_config=review_config_gai,
+        #functions=review_reply,   # funcktions are often not working as planned with gemini
+    )
 
 
-code_executor_gai = ConversableAgent(
-    name="code_executor",
-    system_message="""{Code_Execution_Agent_Instructions}""",
-    human_input_mode="NEVER",
-    llm_config=code_execution_config_gai,
-    code_execution_config={"executor": executor},
-    max_consecutive_auto_reply=50
-)
+    formatting_agent_gai = ConversableAgent(
+        name="formatting_agent",    
+        update_agent_state_before_reply=[
+            UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
+        ],
+
+        description="Formats the final reply for the user",
+        human_input_mode="NEVER",
+        llm_config=formatting_config_gai
+    )
+
+    # no other handoffs needed as rest will be determined by function call
+    initial_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
+    review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
+    refine_agent_gai.handoffs.set_after_work(AgentTarget(formatting_agent_gai))
+    formatting_agent_gai.handoffs.set_after_work(TerminateTarget())
+
+
+    code_executor_gai = ConversableAgent(
+        name="code_executor",
+        system_message="""{Code_Execution_Agent_Instructions}""",
+        human_input_mode="NEVER",
+        llm_config=code_execution_config_gai,
+        code_execution_config={"executor": executor},
+        max_consecutive_auto_reply=50
+    )
+
+
 
 def call_ai(context, user_input):
     if st.session_state.mode_is_fast == "Fast Mode":
@@ -985,7 +1020,10 @@ def call_ai(context, user_input):
 
 
 # --- Chat Input ---
-user_input = st.chat_input("Type your prompt here...")
+if OPTIONS:
+    user_input = st.chat_input("Type your prompt here...")
+else:
+    user_input = None
 
 # --- Display Full Chat History ---
 for message in st.session_state.messages:
