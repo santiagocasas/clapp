@@ -846,6 +846,8 @@ if st.session_state.selected_model in GPT_MODELS:
         max_consecutive_auto_reply=50
 
     )
+else:
+    formatting_agent = None
 
 if st.session_state.selected_model in GEMINI_MODELS:
     initial_config_gai = LLMConfig(
@@ -937,7 +939,8 @@ if st.session_state.selected_model in GEMINI_MODELS:
         max_consecutive_auto_reply=50
     )
 
-
+else:
+    formatting_agent_gai = None
 
 def call_ai(context, user_input):
     if st.session_state.mode_is_fast == "Fast Mode":
