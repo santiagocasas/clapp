@@ -650,15 +650,17 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         temp_plot_path = None
         
         for line in cleaned.split("\n"):
-            if "plt.savefig" in line: 
+            if "plt.savefig" in line:
+                leading_spaces = line[:len(line) - len(line.lstrip())]  # get leading whitespace
                 temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-                cleaned = cleaned.replace(line, f"plt.savefig('{temp_plot_path}', dpi=300)")
+                new_line = f"{leading_spaces}plt.savefig('{temp_plot_path}', dpi=300)"
+                cleaned = cleaned.replace(line, new_line)
                 break
-        else:
+                    #else:
             # If there's a plot but no save, auto-insert save
-            if "plt." in cleaned:
-                temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-                cleaned += f"\nplt.savefig('{temp_plot_path}')"
+            #    if "plt." in cleaned:
+            #        temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
+            #        cleaned += f"\nplt.savefig('{temp_plot_path}')"
 
         # Create a temporary Python file to execute
         temp_script_path = os.path.join(self._temp_dir.name, f'temp_script_{timestamp}.py')
@@ -1228,7 +1230,12 @@ if user_input:
                     #if st.session_state.debug:
                     #    st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
 
+                    # get context on error message
+                    context = retrieve_context(execution_output)
+
                     review_message = f"""
+                    Context:\n{context}\n\nQuestion:
+
                     Previous answer had errors during execution:
                     {execution_output}
 
@@ -1236,15 +1243,25 @@ if user_input:
                     {last_assistant_message}
                     """
 
+
+                    # initialise context to update agent messages
+                    shared_context = ContextVariables(data =  {
+                        "user_prompt": "Correct the errors in the code",
+                        "last_answer": last_assistant_message,
+                        "feedback": f" Previous answer had errors during execution: {execution_output}",
+                        "rating": 0,
+                        "revisions": 0,
+                    })
+
                     if st.session_state.selected_model in GEMINI_MODELS:
-                        chat_result = refine_agent_gai.initiate_chat(
+                        chat_result = review_agent_gai.initiate_chat(
                             recipient=refine_agent_gai,
                             message=review_message,
                             max_turns=1,
                             summary_method="last_msg"
                         )
                     else:
-                        chat_result = refine_agent.initiate_chat(
+                        chat_result = review_agent.initiate_chat(
                             recipient=refine_agent,
                             message=review_message,
                             max_turns=1,

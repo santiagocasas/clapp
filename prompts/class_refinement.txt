@@ -64,3 +64,5 @@ Remember:
 The user prompt is {user_prompt}
 The current answer that you shall improve is {last_answer}. 
 The feedback to incorporate is {feedback}
+
+If the answer to improve is in the chat history, take that last reply from the class agent
