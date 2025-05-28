@@ -11,6 +11,9 @@ import json
 import os
 import base64
 import getpass
+from collections import defaultdict
+
+
 from cryptography.fernet import Fernet
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -29,11 +32,11 @@ from pydantic import BaseModel, Field
 from typing import Annotated
 
 
-from autogen import ConversableAgent, LLMConfig, UpdateSystemMessage
+from autogen import ConversableAgent, LLMConfig, UpdateSystemMessage, ContextExpression
 
 from autogen.agentchat import initiate_group_chat
 from autogen.agentchat.group.patterns import AutoPattern
-from autogen.agentchat.group import ReplyResult, AgentNameTarget
+from autogen.agentchat.group import ReplyResult, AgentNameTarget, OnContextCondition, ExpressionContextCondition
 from autogen.agentchat.group import AgentTarget, RevertToUserTarget, TerminateTarget, NestedChatTarget
 from typing import Annotated
 from autogen.agentchat.group import ContextVariables
@@ -712,40 +715,55 @@ executor = PlotAwareExecutor(timeout=10)
 
 
 
-def review_reply(reply: Annotated[str,"The previously generated reply to the user prompt by the initial agent"],feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
+def review_reply(feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
                   , rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], context_variables: ContextVariables) -> ReplyResult:
     """Review the reply of the Ai Agent to the user prompt with respect to correctness, clarity and relevance for the user prompt"""
     
 
-    context_variables["best_answer"] = reply
+    
     context_variables["feedback"] = feedback
     context_variables["rating"] = rating
     context_variables["revisions"] += 1
 
-
-    #st.markdown("Reviewing draft...")
-
-    #if st.session_state.debug:
-
-    #    st.session_state.debug_messages.append(("Orignal Answer", reply))
-    #    st.session_state.debug_messages.append(("Review Feedback", feedback))
-
     
-    if rating < 7 and context_variables["revisions"] < 3:
+    messages = list(class_agent.chat_messages.values())[0]
+
+
+    #st.markdown(messages[-2])
+    reply = None
+    for item in messages:
+        if item['name'] == 'class_agent' or item['name'] == 'improve_reply_agent':
+            reply = item["content"]
+       
+            #  st.markdown("Last message from agent:")
+            #  st.markdown(reply)
+
+    if reply:
+        context_variables["last_answer"] = reply
+   
+    
+    if rating < 8 and context_variables["revisions"] < 3:
 
         return ReplyResult(
             context_variables=context_variables,
             target=AgentNameTarget("improve_reply_agent"),
-            message=f'Please revise your answer considering this feedback {feedback}',
+            message=f'Please revise the answer considering this feedback {feedback}',
         )
-    else:
+    elif rating >= 8:
         #st.markdown("Formatting final answer...")
 
         return ReplyResult(
             context_variables=context_variables,
-            target=AgentNameTarget("formatting_agent"),
-            message=f'Please formatt the following reply: {reply}',
+            target=AgentNameTarget("improve_reply_agent_final"),
+            message=f'The answer is already of sufficient quality. Focus on formatting the reply',
         )
+    else:
+        return ReplyResult(
+            context_variables=context_variables,
+            target=AgentNameTarget("improve_reply_agent_final"),
+            message=f'Please revise the answer considering this feedback {feedback}',
+        )
+
 
 
 
@@ -767,25 +785,25 @@ if st.session_state.selected_model in GPT_MODELS:
         api_key=api_key,
         )
 
-    formatting_config = LLMConfig(
-        api_type="openai", 
-        model=st.session_state.selected_model, 
-        temperature=0.1,  # Moderate temperature for formatting
-        api_key=api_key,
-    )
+    #formatting_config = LLMConfig(
+    #    api_type="openai", 
+    #    model=st.session_state.selected_model, 
+    #    temperature=0.1,  # Moderate temperature for formatting
+    #    api_key=api_key,
+    #)
 
-    code_execution_config = LLMConfig(
-        api_type="openai", 
-        model=st.session_state.selected_model, 
-        temperature=0.1,  # Very low temperature for code execution
-        api_key=api_key,
-    )
+    #code_execution_config = LLMConfig(
+    #    api_type="openai", 
+    #    model=st.session_state.selected_model, 
+    #    temperature=0.1,  # Very low temperature for code execution
+    #    api_key=api_key,
+    #)
 
     # Global agent instances with updated system messages
-    initial_agent = ConversableAgent(
-        name="initial_agent",
+    class_agent = ConversableAgent(
+        name="class_agent",
         system_message=Initial_Agent_Instructions,
-        description="Initial agent that answers user prompt",
+        description="Initial agent that answers user prompt. Expert in the CLASS code",
         human_input_mode="NEVER",
         llm_config=initial_config
     )
@@ -813,37 +831,57 @@ if st.session_state.selected_model in GPT_MODELS:
         llm_config=initial_config,   
     )
 
-    formatting_agent = ConversableAgent(
-        name="formatting_agent",    
+    refine_agent_final = ConversableAgent(
+        name="improve_reply_agent_final",    
         update_agent_state_before_reply=[
-            UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
+            UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
         ],
         human_input_mode="NEVER",
 
-        description="Formats the final reply for the user",
-        llm_config=formatting_config
+        description="Improves the AI reply by taking into account the feedback",
+        llm_config=initial_config,   
     )
+
+    #formatting_agent = ConversableAgent(
+    #    name="formatting_agent",    
+    #    update_agent_state_before_reply=[
+    #        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
+    #    ],
+    #    human_input_mode="NEVER",
+    #
+    #    description="Formats the final reply for the user",
+    #    llm_config=formatting_config
+    #)
 
     # no other handoffs needed as rest will be determined by function call
-    initial_agent.handoffs.set_after_work(AgentTarget(review_agent))
+    class_agent.handoffs.set_after_work(AgentTarget(review_agent))
+    review_agent.handoffs.set_after_work(AgentTarget(refine_agent))
     refine_agent.handoffs.set_after_work(AgentTarget(review_agent))
-    refine_agent.handoffs.add_llm_conditions([OnCondition(target=AgentNameTarget("formatting_agent"),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
+    refine_agent_final.handoffs.set_after_work(TerminateTarget())
 
-    formatting_agent.handoffs.set_after_work(TerminateTarget())
+    refine_agent.handoffs.add_llm_conditions([OnCondition(target=AgentTarget(refine_agent_final),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
+    #review_agent.handoffs.add_context_condition(
+    #    OnContextCondition(
+    #        target=TerminateTarget(),
+    #        condition=ExpressionContextCondition(ContextExpression("${rating} > 7 or ${revisions} > 2"))
+    #    )
+    #)
+
+    #formatting_agent.handoffs.set_after_work(TerminateTarget())
 
 
 
-    code_executor = ConversableAgent(
-        name="code_executor",
-        system_message="""{Code_Execution_Agent_Instructions}""",
-        human_input_mode="NEVER",
-        llm_config=code_execution_config,
-        code_execution_config={"executor": executor},
-        max_consecutive_auto_reply=50
+    #code_executor = ConversableAgent(
+    #    name="code_executor",
+    #    system_message="""{Code_Execution_Agent_Instructions}""",
+    #    human_input_mode="NEVER",
+    #    llm_config=code_execution_config,
+    #    code_execution_config={"executor": executor},
+    #    max_consecutive_auto_reply=50
 
-    )
+    #)
 else:
-    formatting_agent = None
+    refine_agent_final = None
 
 if st.session_state.selected_model in GEMINI_MODELS:
     initial_config_gai = LLMConfig(
@@ -860,26 +898,26 @@ if st.session_state.selected_model in GEMINI_MODELS:
         api_key=api_key_gai,
     )
 
-    formatting_config_gai = LLMConfig(
-        api_type="google", 
-        model=st.session_state.selected_model, 
-        temperature=0.1,  # Moderate temperature for formatting
-        api_key=api_key_gai,
-    )
+    #formatting_config_gai = LLMConfig(
+    #    api_type="google", 
+    #    model=st.session_state.selected_model, 
+    #    temperature=0.1,  # Moderate temperature for formatting
+    #    api_key=api_key_gai,
+    #)
 
-    code_execution_config_gai = LLMConfig(
-        api_type="google", 
-        model=st.session_state.selected_model, 
-        temperature=0.1,  # Very low temperature for code execution
-        api_key=api_key_gai,
-    )
+    #code_execution_config_gai = LLMConfig(
+    #    api_type="google", 
+    #    model=st.session_state.selected_model, 
+    #    temperature=0.1,  # Very low temperature for code execution
+    #    api_key=api_key_gai,
+    #)
 
     # Global agent instances with updated system messages for gemini
-    initial_agent_gai = ConversableAgent(
-        name="initial_agent",
+    class_agent_gai = ConversableAgent(
+        name="class_agent",
         system_message=Initial_Agent_Instructions,
 
-        description="Initial agent that answers user prompt",
+        description="Initial agent that answers user prompt. Expert in the CLASS code",
         human_input_mode="NEVER",
         llm_config=initial_config_gai
     )
@@ -908,35 +946,34 @@ if st.session_state.selected_model in GEMINI_MODELS:
     )
 
 
-    formatting_agent_gai = ConversableAgent(
-        name="formatting_agent",    
-        update_agent_state_before_reply=[
-            UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
-        ],
+    #formatting_agent_gai = ConversableAgent(
+    #    name="formatting_agent",    
+    #    update_agent_state_before_reply=[
+    #        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
+    #    ],
 
-        description="Formats the final reply for the user",
-        human_input_mode="NEVER",
-        llm_config=formatting_config_gai
-    )
+    #    description="Formats the final reply for the user",
+    #    human_input_mode="NEVER",
+    #    llm_config=formatting_config_gai
+    #)
 
     # no other handoffs needed as rest will be determined by function call
-    initial_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
+    class_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
     review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
-    refine_agent_gai.handoffs.set_after_work(AgentTarget(formatting_agent_gai))
-    formatting_agent_gai.handoffs.set_after_work(TerminateTarget())
+    refine_agent_gai.handoffs.set_after_work(TerminateTarget())
+    
 
-
-    code_executor_gai = ConversableAgent(
-        name="code_executor",
-        system_message="""{Code_Execution_Agent_Instructions}""",
-        human_input_mode="NEVER",
-        llm_config=code_execution_config_gai,
-        code_execution_config={"executor": executor},
-        max_consecutive_auto_reply=50
-    )
-
+    #code_executor_gai = ConversableAgent(
+    #   name="code_executor",
+    #    system_message="""{Code_Execution_Agent_Instructions}""",
+    #    human_input_mode="NEVER",
+    #    llm_config=code_execution_config_gai,
+    #    code_execution_config={"executor": executor},
+    #    max_consecutive_auto_reply=50
+    #)
 else:
-    formatting_agent_gai = None
+    refine_agent_gai = None
+
 
 def call_ai(context, user_input):
     if st.session_state.mode_is_fast == "Fast Mode":
@@ -962,22 +999,22 @@ def call_ai(context, user_input):
         conversation_history = format_memory_messages(st.session_state.memory.messages)
         shared_context = ContextVariables(data =  {
             "user_prompt": user_input,
-            "best_answer": "",
-            "feedback": "",
-            "rating": None,
+            "last_answer": "see chat history",
+            "feedback": "see chat history",
+            "rating": 0,
             "revisions": 0,
         })
         if st.session_state.selected_model in GEMINI_MODELS:
             pattern = AutoPattern(
-                initial_agent=initial_agent_gai,  # Agent that starts the conversation
-                agents=[initial_agent_gai,review_agent_gai,refine_agent_gai,formatting_agent_gai],
+                initial_agent=class_agent_gai,  # Agent that starts the conversation
+                agents=[class_agent_gai,review_agent_gai,refine_agent_gai],
                 group_manager_args={"llm_config": initial_config_gai},
                 context_variables=shared_context,
             )
         else:
             pattern = AutoPattern(
-                initial_agent=initial_agent,  # Agent that starts the conversation
-                agents=[initial_agent,review_agent,refine_agent,formatting_agent],
+                initial_agent=class_agent,  # Agent that starts the conversation
+                agents=[class_agent,review_agent,refine_agent,refine_agent_final],
                 group_manager_args={"llm_config": initial_config},
                 context_variables=shared_context,
             )
@@ -990,28 +1027,25 @@ def call_ai(context, user_input):
         formatted_answer = None  # default to nothing
 
         # 1. If the formatting agent gave the last reply, use that
-        if last_agent == formatting_agent or last_agent == formatting_agent_gai:
+        if last_agent == refine_agent_final or last_agent == refine_agent_gai:
             formatted_answer = result.chat_history[-1]["content"]
 
-        # 2. Otherwise, use shared_context["best_answer"] if it's non-empty
-        if not formatted_answer and shared_context.get("best_answer"):
-            formatted_answer = shared_context["best_answer"]
-
+    
+        # 2. Otherwise, use shared_context["last_answer"] if it's non-empty
+        if not formatted_answer and shared_context.get("last_answer"):
+            formatted_answer = shared_context["last_answer"]
+                   
         # 3. Otherwise, fall back to the initial agent's last message
-        try:
-            if not formatted_answer:
-                for item in result.chat_history:
-                    if item['name'] == 'initial_agent' or item['name'] == 'improve_reply_agent':
-                        formatted_answer = item["content"]
-        except:
-            formatted_answer = "⚠️ Failed to load chat history"
-
-                            
-
-        # Final fallback in case everything fails
+    
         if not formatted_answer:
-            formatted_answer = "⚠️ No formatted answer found."
-
+            try:
+                for item in result.chat_history:
+                    st.markdown(item)
+                    if item['name'] == 'class_agent' or item['name'] == 'imporve_reply_agent':
+                        formatted_answer = item["content"]
+            except:
+                formatted_answer = 'failed to load chat history'
+        
 
         if st.session_state.debug:
             st.session_state.debug_messages.append(("Formatted Answer", formatted_answer))

@@ -1,4 +1,4 @@
-You are a quality reviewer for AI-generated responses. When possible you initiate a function call in a groupchat. 
+You are a quality reviewer for AI-generated responses. When possible you initiate a function call in a Groupchat. 
 
 The originally asked user question is: {user_prompt} 
 
