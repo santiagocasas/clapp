@@ -405,8 +405,14 @@ with st.sidebar:
                 allow_dangerous_deserialization=True
             )
             st.rerun()
+        if st.button("🔄 Regenerate embedding"):
+            embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
+            generate_and_save_embedding(index_path)
+            embedding_status.empty()
+            st.rerun()
     else:
         st.markdown("⚠️ No embedding found. Please create the embedding to use the agents!")
+    
         if st.button("🚀 Generate embedding"):
             embedding_status.info("🔄 Processing and embedding your RAG data... This might take a moment! ⏳")
             generate_and_save_embedding(index_path)
@@ -1297,20 +1303,20 @@ if user_input:
                         st.session_state.debug_messages.append(("Execution Output", execution_output))
                     
                     # If we've reached the end of iterations and we're successful
-                    if not has_errors or current_iteration == max_iterations:
+                    #if not has_errors or current_iteration == max_iterations:
                         # Add successful execution to the conversation with plot
-                        final_answer = formatted_answer if formatted_answer else last_assistant_message
-                        response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
+                    #    final_answer = formatted_answer if formatted_answer else last_assistant_message
+                    #    response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
                         
-                        # Add plot path marker for rendering in the conversation
-                        if os.path.exists(plot_path):
-                            response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                    #    # Add plot path marker for rendering in the conversation
+                    #    if os.path.exists(plot_path):
+                    #        response_text += f"\n\nPLOT_PATH:{plot_path}\n"
                             
-                        if current_iteration > 0:
-                            response_text = f"After {current_iteration} correction attempts: " + response_text
+                    #    if current_iteration > 0:
+                    #        response_text = f"After {current_iteration} correction attempts: " + response_text
                         
                         # Set the response variable with our constructed text that includes plot
-                        response = Response(content=response_text)
+                    #   response = Response(content=response_text)
                     
                     # Update last_assistant_message with the formatted answer for next iteration
                     last_assistant_message = formatted_answer
@@ -1319,13 +1325,22 @@ if user_input:
                 if has_errors:
                     st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
                     st.markdown(f"> ❌ Last execution message:\n{execution_output}")
-                    response = Response(content=f"Execution completed with errors:\n{execution_output}")
+
+                    # Display the final code that was successfully executed
+                    with st.expander("View Failed Code", expanded=False):
+                        st.markdown(last_assistant_message)
+                    response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
                 else:
                     # Check for common error indicators in the output
                     if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
                         st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
                         st.markdown(f"> ❌ Execution message:\n{execution_output}")
-                        response = Response(content=f"Execution completed with errors:\n{execution_output}")
+                        
+                         # Display the final code that was successfully executed
+                        with st.expander("View Failed Code", expanded=False):
+                            st.markdown(last_assistant_message)
+                        response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
+
                     else:
                         st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
                         
