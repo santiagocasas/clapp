@@ -994,14 +994,14 @@ def call_ai(context, user_input):
         response = "".join(response)
 
         # Check if the answer contains code
-        if "```python" in response:
+        #if "```python" in response:
             # Add a note about code execution
-            response += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
-            return Response(content=response)
-        else:
-            return Response(content=response)
+        #    response += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
+        #    return Response(content=response)
+        #else:
+        #    return Response(content=response)
 
-        #return Response(content=response)
+        return Response(content=response)
     else:
         # New Groupchat Workflow for detailed mode
         st.markdown("Thinking (Deep Thought Mode)... ")
@@ -1062,13 +1062,13 @@ def call_ai(context, user_input):
 
 
         # Check if the answer contains code
-        if "```python" in formatted_answer:
+        #if "```python" in formatted_answer:
             # Add a note about code execution
-            formatted_answer += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
-            return Response(content=formatted_answer)
-        else:
-            return Response(content=formatted_answer)
-
+        #    formatted_answer += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
+        #    return Response(content=formatted_answer)
+        #else:
+        #    return Response(content=formatted_answer)
+        return Response(content=formatted_answer)
 def call_code():
     #if st.session_state.selected_model in GEMINI_MODELS:
     #    st.markdown("Code execution only supprted in openai at the moment")
@@ -1183,21 +1183,42 @@ def call_code():
             })
 
             if st.session_state.selected_model in GEMINI_MODELS:
-                chat_result = review_agent_gai.initiate_chat(
-                    recipient=refine_agent_gai,
-                    message=review_message,
-                    max_turns=1,
-                    summary_method="last_msg"
+                pattern = AutoPattern(
+                    initial_agent=refine_agent_gai,  # Agent that starts the conversation
+                    agents=[refine_agent_gai],
+                    group_manager_args={"llm_config": initial_config_gai},
+                    context_variables=shared_context,
                 )
             else:
-                chat_result = review_agent.initiate_chat(
-                    recipient=refine_agent,
-                    message=review_message,
-                    max_turns=1,
-                    summary_method="last_msg"
+                pattern = AutoPattern(
+                    initial_agent=refine_agent_final,  # Agent that starts the conversation
+                    agents=[refine_agent_final],
+                    group_manager_args={"llm_config": initial_config},
+                    context_variables=shared_context,
                 )
+            
+            result, context_variables, last_agent = initiate_group_chat(
+                pattern=pattern,
+                messages=review_message,
+                max_rounds=2,
+            )
 
-            formatted_answer = chat_result.summary
+            #if st.session_state.selected_model in GEMINI_MODELS:
+            #    chat_result = review_agent_gai.initiate_chat(
+            #        recipient=refine_agent_gai,
+            #        message=review_message,
+            #        max_turns=1,
+            #        summary_method="last_msg"
+            #    )
+            #else:
+            #    chat_result = review_agent.initiate_chat(
+            #        recipient=refine_agent,
+            #        message=review_message,
+            #        max_turns=1,
+            #        summary_method="last_msg"
+            #    )
+
+            formatted_answer = result.chat_history[-1]["content"]
             if st.session_state.debug:
                 st.session_state.debug_messages.append(("Error Review Feedback", formatted_answer))
 
