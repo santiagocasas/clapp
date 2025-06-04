@@ -53,9 +53,10 @@ This project uses conda/mamba for environment management, which is compatible wi
    ```
 
 4. **API Key:**
-   * You will need an OpenAI API key.
+   * You will need an OpenAI API or Gemini key.
    * The application allows you to enter a username, API key, and password to encrypt and store it locally.
    * Keys are saved as `{username}_encrypted_api_key` to allow multiple users.
+   * Get your free Gemini key from https://aistudio.google.com/app/apikey
 
 5. **CLASS Installation:**
    * CLAPP includes a built-in CLASS installation button that will install CLASS from source.

@@ -188,8 +188,11 @@ with st.sidebar:
     #    st.success("API key(s) loaded into session.")
     #    st.rerun()
 
+    
+
     username = st.text_input("2. Username (for loading or saving API key)", placeholder="Enter your username")
     user_password = st.text_input("3. Password to encrypt/decrypt API key", type="password")
+
 
     # File existence checks
     username_display = username if username else 'anon'
@@ -295,7 +298,9 @@ with st.sidebar:
         api_key_gai = st.session_state.saved_api_key_gai
     
 
-    
+    if not api_key_gai:
+        st.markdown("Get a gemini api key from https://aistudio.google.com/app/apikey")
+
 
 
     OPTIONS = []
