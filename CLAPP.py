@@ -126,7 +126,40 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-st.markdown("# CLAPP: CLASS LLM Agent for Pair Programming")
+def inject_global_styles_and_font(font_name: str):
+    font_url_name = font_name.replace(" ", "+")
+    st.markdown(
+        f"""
+        <link href=\"https://fonts.googleapis.com/css?family={font_url_name}\" rel=\"stylesheet\">
+        <style>
+        .main-title {{
+            font-family: '{font_name}', sans-serif !important;
+            font-size: 3.8rem !important;
+            font-weight: 700 !important;
+            margin-bottom: 0.5rem !important;
+            margin-top: 0.5rem !important;
+            color: #222;
+            letter-spacing: 1px;
+        }}
+        .sidebar-title {{
+            font-family: '{font_name}', sans-serif !important;
+            font-size: 1.5rem !important;
+            font-weight: 600 !important;
+            margin-bottom: 0.5rem !important;
+            margin-top: 0.5rem !important;
+            color: #222;
+            letter-spacing: 0.5px;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# Inject Jersey 10 font at the top
+inject_global_styles_and_font("Jersey 10")
+
+# Replace the main title markdown with the styled div
+st.markdown('<div class="main-title">CLAPP: CLASS LLM Agent for Pair Programming</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.image("images/CLAPP.png", width=400)
@@ -173,9 +206,651 @@ init_session()
 
 
 
+
+# --- Retrieval + Prompt Construction ---
+def build_messages(context, question, system):
+    system_msg = SystemMessage(content=system)
+    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}")
+    return [system_msg] + st.session_state.memory.messages + [human_msg]
+
+#def build_messages_rating(context, question, answer, system):
+#    system_msg = SystemMessage(content=system)
+#    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}")
+#    return [system_msg] + st.session_state.memory.messages + [human_msg]
+
+#def build_messages_refinement(context, question, answer, feedback, system):
+#    system_msg = SystemMessage(content=system)
+#    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}\n\nReviewer Feedback:\n{feedback}")
+#    return [system_msg] + st.session_state.memory.messages + [human_msg]
+
+def format_memory_messages(memory_messages):
+    formatted = ""
+    for msg in memory_messages:
+        role = msg.type.capitalize()  # 'human' -> 'Human'
+        content = msg.content
+        formatted += f"{role}: {content}\n\n"
+    return formatted.strip()
+
+
+def retrieve_context(question):
+    docs = st.session_state.vector_store.similarity_search(question, k=4)
+    return "\n\n".join([doc.page_content for doc in docs])
+
+
+# Set up code execution environment
+#temp_dir = tempfile.TemporaryDirectory()
+
+class PlotAwareExecutor(LocalCommandLineCodeExecutor):
+    def __init__(self, **kwargs):
+        import tempfile
+        # Create a persistent plots directory if it doesn't exist
+        plots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots')
+        os.makedirs(plots_dir, exist_ok=True)
+        
+        # Still use a temp dir for code execution
+        temp_dir = tempfile.TemporaryDirectory()
+        kwargs['work_dir'] = temp_dir.name
+        super().__init__(**kwargs)
+        self._temp_dir = temp_dir
+        self._plots_dir = plots_dir
+
+    @contextlib.contextmanager
+    def _capture_output(self):
+        old_out, old_err = sys.stdout, sys.stderr
+        buf_out, buf_err = io.StringIO(), io.StringIO()
+        sys.stdout, sys.stderr = buf_out, buf_err
+        try:
+            yield buf_out, buf_err
+        finally:
+            sys.stdout, sys.stderr = old_out, old_err
+
+    def execute_code(self, code: str):
+        # 1) Extract code from markdown
+        match = re.search(r"```(?:python)?\n(.*?)```", code, re.DOTALL)
+        cleaned = match.group(1) if match else code
+        cleaned = cleaned.replace("plt.show()", "")
+        
+        # Add timestamp for saving figures only if there's plt usage in the code
+        timestamp = time.strftime("%Y-%m-%d-%H-%M-%S")
+        plot_filename = f'plot_{timestamp}.png'
+        plot_path = os.path.join(self._plots_dir, plot_filename)
+        temp_plot_path = None
+        
+        for line in cleaned.split("\n"):
+            if "plt.savefig" in line:
+                leading_spaces = line[:len(line) - len(line.lstrip())]  # get leading whitespace
+                temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
+                new_line = f"{leading_spaces}plt.savefig('{temp_plot_path}', dpi=300)"
+                cleaned = cleaned.replace(line, new_line)
+                break
+                    #else:
+            # If there's a plot but no save, auto-insert save
+            #    if "plt." in cleaned:
+            #        temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
+            #        cleaned += f"\nplt.savefig('{temp_plot_path}')"
+
+        # Create a temporary Python file to execute
+        temp_script_path = os.path.join(self._temp_dir.name, f'temp_script_{timestamp}.py')
+        with open(temp_script_path, 'w') as f:
+            f.write(cleaned)
+        
+        full_output = ""
+        try:
+            # 2) Capture stdout using subprocess
+            process = subprocess.Popen(
+                [sys.executable, temp_script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1, 
+                cwd=self._temp_dir.name
+            )
+            stdout, _ = process.communicate()
+
+            # 3) Format the output
+            with self._capture_output() as (out_buf, err_buf):
+                if stdout:
+                    out_buf.write(stdout)
+                stdout_text = out_buf.getvalue()
+                stderr_text = err_buf.getvalue()
+
+            if stdout_text:
+                full_output += f"STDOUT:\n{stdout_text}\n"
+            if stderr_text:
+                full_output += f"STDERR:\n{stderr_text}\n"
+                
+            # Copy plot from temp to persistent location if it exists
+            if temp_plot_path and os.path.exists(temp_plot_path):
+                import shutil
+                shutil.copy2(temp_plot_path, plot_path)
+                # Initialize the plots list if it doesn't exist
+                if "generated_plots" not in st.session_state:
+                    st.session_state.generated_plots = []
+                # Add the persistent plot path to session state
+                st.session_state.generated_plots.append(plot_path)
+
+        except Exception:
+            with self._capture_output() as (out_buf, err_buf):
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                full_output += f"STDERR:\n{err_buf.getvalue()}\n"
+
+        return full_output, plot_path
+
+# Example instantiation:
+executor = PlotAwareExecutor(timeout=10)
+
+# Global agent configurations
+
+
+
+def review_reply(feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"], rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], context_variables: ContextVariables) -> ReplyResult:
+    """Review the reply of the Ai Agent to the user prompt with respect to correctness, clarity and relevance for the user prompt"""
+    context_variables["feedback"] = feedback
+    context_variables["rating"] = rating
+    context_variables["revisions"] += 1
+
+    
+    messages = list(class_agent.chat_messages.values())[0]
+
+
+    #st.markdown(messages[-2])
+    reply = None
+    for item in messages:
+        if item['name'] == 'class_agent' or item['name'] == 'improve_reply_agent':
+            reply = item["content"]
+       
+            #  st.markdown("Last message from agent:")
+            #  st.markdown(reply)
+
+    if reply:
+        context_variables["last_answer"] = reply
+   
+    
+    if rating < 8 and context_variables["revisions"] < 3:
+
+        return ReplyResult(
+            context_variables=context_variables,
+            target=AgentNameTarget("improve_reply_agent"),
+            message=f'Please revise the answer considering this feedback {feedback}',
+        )
+    elif rating >= 8:
+        #st.markdown("Formatting final answer...")
+
+        return ReplyResult(
+            context_variables=context_variables,
+            target=AgentNameTarget("improve_reply_agent_final"),
+            message=f'The answer is already of sufficient quality. Focus on formatting the reply',
+        )
+    else:
+        return ReplyResult(
+            context_variables=context_variables,
+            target=AgentNameTarget("improve_reply_agent_final"),
+            message=f'Please revise the answer considering this feedback {feedback}',
+        )
+
+
+def get_agents():
+    if st.session_state.selected_model in GPT_MODELS:
+        initial_config = LLMConfig(
+            api_type="openai",
+            model=st.session_state.selected_model,
+            temperature=0.2,
+            api_key=st.session_state.get("saved_api_key"),
+        )
+        review_config = LLMConfig(
+            api_type="openai",
+            model=st.session_state.selected_model,
+            temperature=0.5,
+            api_key=st.session_state.get("saved_api_key"),
+        )
+        class_agent = ConversableAgent(
+            name="class_agent",
+            system_message=Initial_Agent_Instructions,
+            description="Initial agent that answers user prompt. Expert in the CLASS code",
+            human_input_mode="NEVER",
+            llm_config=initial_config
+        )
+        review_agent = ConversableAgent(
+            name="review_agent",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Review_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Reviews the AI answer to user prompt",
+            llm_config=review_config,
+            functions=review_reply,
+        )
+        refine_agent = ConversableAgent(
+            name="improve_reply_agent",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Refine_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Improves the AI reply by taking into account the feedback",
+            llm_config=initial_config,
+        )
+        refine_agent_final = ConversableAgent(
+            name="improve_reply_agent_final",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Refine_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Improves the AI reply by taking into account the feedback",
+            llm_config=initial_config,
+        )
+        class_agent.handoffs.set_after_work(AgentTarget(review_agent))
+        review_agent.handoffs.set_after_work(AgentTarget(refine_agent))
+        refine_agent.handoffs.set_after_work(AgentTarget(review_agent))
+        refine_agent_final.handoffs.set_after_work(TerminateTarget())
+        refine_agent.handoffs.add_llm_conditions([
+            OnCondition(target=AgentTarget(refine_agent_final), condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))
+        ])
+        return {
+            "class_agent": class_agent,
+            "review_agent": review_agent,
+            "refine_agent": refine_agent,
+            "refine_agent_final": refine_agent_final,
+            "initial_config": initial_config,
+        }
+    elif st.session_state.selected_model in GEMINI_MODELS:
+        initial_config_gai = LLMConfig(
+            api_type="google",
+            model=st.session_state.selected_model,
+            temperature=0.2,
+            api_key=st.session_state.get("saved_api_key_gai"),
+        )
+        review_config_gai = LLMConfig(
+            api_type="google",
+            model=st.session_state.selected_model,
+            temperature=0.5,
+            api_key=st.session_state.get("saved_api_key_gai"),
+        )
+        class_agent_gai = ConversableAgent(
+            name="class_agent",
+            system_message=Initial_Agent_Instructions,
+            description="Initial agent that answers user prompt. Expert in the CLASS code",
+            human_input_mode="NEVER",
+            llm_config=initial_config_gai
+        )
+        refine_agent_gai = ConversableAgent(
+            name="improve_reply_agent",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Refine_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Improves the AI reply by taking into account the feedback",
+            llm_config=initial_config_gai,
+        )
+        review_agent_gai = ConversableAgent(
+            name="review_agent",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Review_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Reviews the AI answer to user prompt",
+            llm_config=review_config_gai,
+            #functions=review_reply,  # functions often not working as planned with gemini
+        )
+        class_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
+        review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
+        refine_agent_gai.handoffs.set_after_work(TerminateTarget())
+        return {
+            "class_agent_gai": class_agent_gai,
+            "review_agent_gai": review_agent_gai,
+            "refine_agent_gai": refine_agent_gai,
+            "initial_config_gai": initial_config_gai,
+        }
+    else:
+        return {}
+
+def call_code():
+    agents = get_agents()
+    #if st.session_state.selected_model in GEMINI_MODELS:
+    #    st.markdown("Code execution only supprted in openai at the moment")
+    #    response = Response(content="Cannot excecute code with gemini api")
+    #else:
+    # Find the last assistant message containing code
+    last_assistant_message = None
+    for message in reversed(st.session_state.messages):
+        if message["role"] == "assistant" and "```" in message["content"]:
+            last_assistant_message = message["content"]
+            break
+    
+    if last_assistant_message:
+        st.markdown("Executing code...")
+        st.info("🚀 Executing cleaned code...")
+        #chat_result = code_executor.initiate_chat(
+        #    recipient=code_executor,
+        #    message=f"Please execute this code:\n{last_assistant_message}",
+        #    max_turns=1,
+        #    summary_method="last_msg"
+        #)
+        #execution_output = chat_result.summary
+        execution_output, plot_path = executor.execute_code(last_assistant_message)
+        st.subheader("Execution Output")
+        st.text(execution_output)  # now contains both STDOUT and STDERR
+        
+        if os.path.exists(plot_path):
+            st.success("✅ Plot generated successfully!")
+            # Display the plot
+            #st.image(plot_path, use_container_width=True)
+            st.image(plot_path, width=700)
+        else:
+            st.warning("⚠️ No plot was generated")
+        
+        has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
+
+        
+        # Check for errors and iterate if needed
+        max_iterations = 3  # Maximum number of iterations to prevent infinite loops
+        current_iteration = 0
+        
+        while has_errors and current_iteration < max_iterations:
+            current_iteration += 1
+            st.error(f"Previous error: {execution_output}")  # Show the actual error message
+            st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
+
+            # Get new review with error information
+            #review_message = f"""
+            #Previous answer had errors during execution:
+            #{execution_output}
+
+            #Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+            #{last_assistant_message}
+            #"""
+            #chat_result_2 = review_agent.initiate_chat(
+            #    recipient=review_agent,
+            #    message=review_message,
+            #    max_turns=1,
+            #    summary_method="last_msg"
+            #)
+            #review_feedback = chat_result_2.summary
+            #if st.session_state.debug:
+            #    st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
+
+            # Get corrected version
+            #chat_result_3 = initial_agent.initiate_chat(
+            #    recipient=initial_agent,
+            #    message=f"""Original answer: {last_assistant_message}
+            #    Review feedback with error fixes: {review_feedback}
+            #    IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
+            #    max_turns=1,
+            #    summary_method="last_msg"
+            #)
+            #corrected_answer = chat_result_3.summary
+            #if st.session_state.debug:
+            #    st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
+
+            # Format the corrected answer
+            #chat_result_4 = formatting_agent.initiate_chat(
+            #    recipient=formatting_agent,
+            #    message=f"""Please format this corrected answer while preserving all code blocks:
+            #    {corrected_answer}
+            #    """,
+            #    max_turns=1,
+            #    summary_method="last_msg"
+            #)
+            #formatted_answer = chat_result_4.summary
+            #if st.session_state.debug:
+            #    st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
+
+            # get context on error message
+            context = retrieve_context(execution_output)
+
+            review_message = f"""
+            Context:\n{context}\n\nQuestion:
+
+            Previous answer had errors during execution:
+            {execution_output}
+
+            Please modify the code to fix those errors. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
+            {last_assistant_message}
+            """
+
+
+            # initialise context to update agent messages
+            shared_context = ContextVariables(data =  {
+                "user_prompt": "Correct the errors in the code",
+                "last_answer": last_assistant_message,
+                "feedback": f" Previous answer had errors during execution: {execution_output}",
+                "rating": 0,
+                "revisions": 0,
+            })
+
+            if st.session_state.selected_model in GEMINI_MODELS:
+                pattern = AutoPattern(
+                    initial_agent=agents["refine_agent_gai"],
+                    agents=[agents["refine_agent_gai"]],
+                    group_manager_args={"llm_config": agents["initial_config_gai"]},
+                    context_variables=shared_context,
+                )
+            else:
+                pattern = AutoPattern(
+                    initial_agent=agents["refine_agent_final"],
+                    agents=[agents["refine_agent_final"]],
+                    group_manager_args={"llm_config": agents["initial_config"]},
+                    context_variables=shared_context,
+                )
+            
+            result, context_variables, last_agent = initiate_group_chat(
+                pattern=pattern,
+                messages=review_message,
+                max_rounds=2,
+            )
+
+            #if st.session_state.selected_model in GEMINI_MODELS:
+            #    chat_result = review_agent_gai.initiate_chat(
+            #        recipient=refine_agent_gai,
+            #        message=review_message,
+            #        max_turns=1,
+            #        summary_method="last_msg"
+            #    )
+            #else:
+            #    chat_result = review_agent.initiate_chat(
+            #        recipient=refine_agent,
+            #        message=review_message,
+            #        max_turns=1,
+            #        summary_method="last_msg"
+            #    )
+
+            formatted_answer = result.chat_history[-1]["content"]
+            if st.session_state.debug:
+                st.session_state.debug_messages.append(("Error Review Feedback", formatted_answer))
+
+
+            # Execute the corrected code
+            st.info("🚀 Executing corrected code...")
+            #chat_result = code_executor.initiate_chat(
+            #    recipient=code_executor,
+            #    message=f"Please execute this corrected code:\n{formatted_answer}",
+            #    max_turns=1,
+            #    summary_method="last_msg"
+            #)
+            #execution_output = chat_result.summary
+            execution_output, plot_path = executor.execute_code(formatted_answer)
+            st.subheader("Execution Output")
+            st.text(execution_output)  # now contains both STDOUT and STDERR
+            
+            if os.path.exists(plot_path):
+                st.success("✅ Plot generated successfully!")
+                # Display the plot
+                st.image(plot_path, width=700)
+            else:
+                st.warning("⚠️ No plot was generated")
+            
+            if st.session_state.debug:
+                st.session_state.debug_messages.append(("Execution Output", execution_output))
+            
+            # If we've reached the end of iterations and we're successful
+            #if not has_errors or current_iteration == max_iterations:
+                # Add successful execution to the conversation with plot
+            #    final_answer = formatted_answer if formatted_answer else last_assistant_message
+            #    response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
+                
+            #    # Add plot path marker for rendering in the conversation
+            #    if os.path.exists(plot_path):
+            #        response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                    
+            #    if current_iteration > 0:
+            #        response_text = f"After {current_iteration} correction attempts: " + response_text
+                
+                # Set the response variable with our constructed text that includes plot
+            #   response = Response(content=response_text)
+            
+            # Update last_assistant_message with the formatted answer for next iteration
+            last_assistant_message = formatted_answer
+            has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
+
+        if has_errors:
+            st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
+            st.markdown(f"> ❌ Last execution message:\n{execution_output}")
+
+            # Display the final code that was successfully executed
+            with st.expander("View Failed Code", expanded=False):
+                st.markdown(last_assistant_message)
+            response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
+        else:
+            # Check for common error indicators in the output
+            if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
+                st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
+                st.markdown(f"> ❌ Execution message:\n{execution_output}")
+                
+                    # Display the final code that was successfully executed
+                with st.expander("View Failed Code", expanded=False):
+                    st.markdown(last_assistant_message)
+                response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
+
+            else:
+                st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
+                
+                # Display the final code that was successfully executed
+                with st.expander("View Successfully Executed Code", expanded=False):
+                    st.markdown(last_assistant_message)
+                    
+                # Create a response message that includes the plot path
+                response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
+                
+                # Add plot path marker for rendering in the conversation
+                if os.path.exists(plot_path):
+                    response_text += f"\n\nPLOT_PATH:{plot_path}\n"
+                    
+                response = Response(content=response_text)
+    else:
+        response = Response(content="No code found to execute in the previous messages.")
+
+    return response
+
+def call_ai(context, user_input):
+    agents = get_agents()
+    if st.session_state.mode_is_fast == "Fast Mode":
+        messages = build_messages(context, user_input, Initial_Agent_Instructions)
+        response = []
+        for chunk in st.session_state.llm.stream(messages):
+            response.append(chunk.content)  # or chunk if using token chunks
+
+        response = "".join(response)
+
+        # Check if the answer contains code
+        #if "```python" in response:
+            # Add a note about code execution
+        #    response += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
+        #    return Response(content=response)
+        #else:
+        #    return Response(content=response)
+
+        return Response(content=response)
+    else:
+        # New Groupchat Workflow for detailed mode
+        st.markdown("Thinking (Deep Thought Mode)... ")
+        conversation_history = format_memory_messages(st.session_state.memory.messages)
+        shared_context = ContextVariables(data =  {
+            "user_prompt": user_input,
+            "last_answer": "see chat history",
+            "feedback": "see chat history",
+            "rating": 0,
+            "revisions": 0,
+        })
+        if st.session_state.selected_model in GEMINI_MODELS:
+            pattern = AutoPattern(
+                initial_agent=agents["class_agent_gai"],
+                agents=[agents["class_agent_gai"],agents["review_agent_gai"],agents["refine_agent_gai"]],
+                group_manager_args={"llm_config": agents["initial_config_gai"]},
+                context_variables=shared_context,
+            )
+        else:
+            pattern = AutoPattern(
+                initial_agent=agents["class_agent"],
+                agents=[agents["class_agent"],agents["review_agent"],agents["refine_agent"],agents["refine_agent_final"]],
+                group_manager_args={"llm_config": agents["initial_config"]},
+                context_variables=shared_context,
+            )
+        st.markdown("Generating answer...")
+        result, context_variables, last_agent = initiate_group_chat(
+            pattern=pattern,
+            messages=f"Context from documents: {context}\n\nConversation history:\n{conversation_history}\n\nUser question: {user_input}",
+            max_rounds=10,
+        )
+        formatted_answer = None  # default to nothing
+
+        # 1. If the formatting agent gave the last reply, use that
+        if last_agent == agents["refine_agent_final"] or last_agent == agents["refine_agent_gai"]:
+            formatted_answer = result.chat_history[-1]["content"]
+
+    
+        # 2. Otherwise, use shared_context["last_answer"] if it's non-empty
+        if not formatted_answer and shared_context.get("last_answer"):
+            formatted_answer = shared_context["last_answer"]
+                   
+        # 3. Otherwise, fall back to the initial agent's last message
+    
+        if not formatted_answer:
+            try:
+                for item in result.chat_history:
+                    st.markdown(item)
+                    if item['name'] == 'class_agent' or item['name'] == 'imporve_reply_agent':
+                        formatted_answer = item["content"]
+            except:
+                formatted_answer = 'failed to load chat history'
+        
+
+        if st.session_state.debug:
+            st.session_state.debug_messages.append(("Formatted Answer", formatted_answer))
+            st.session_state.debug_messages.append(("Feedback", shared_context["feedback"]))
+
+
+        # Check if the answer contains code
+        #if "```python" in formatted_answer:
+            # Add a note about code execution
+        #    formatted_answer += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
+        #    return Response(content=formatted_answer)
+        #else:
+        #    return Response(content=formatted_answer)
+        return Response(content=formatted_answer)
+
+# --- Debug Info ---
+if st.session_state.debug:
+    with st.sidebar.expander("🛠️ Debug Information", expanded=True):
+        # Create a container for debug messages
+        debug_container = st.container()
+        with debug_container:
+            st.markdown("### Debug Messages")
+            
+            # Display all debug messages in a scrollable container
+            for title, message in st.session_state.debug_messages:
+                st.markdown(f"### {title}")
+                st.markdown(message)
+                st.markdown("---")
+    
+    with st.sidebar.expander("🛠️ Context Used"):
+        if "context" in locals():
+            st.markdown(context)
+        else:
+            st.markdown("No context retrieved yet.")
+
 # --- Sidebar Configuration ---
 with st.sidebar:
-    st.header("🔐 API & Assistants")
+    st.markdown('<div class="sidebar-title">🔐 API & Assistants</div>', unsafe_allow_html=True)
     api_key = st.text_input("1. OpenAI API Key", type="password")
     api_key_gai = st.text_input("1. Gemini API Key", type="password")
 
@@ -299,7 +974,7 @@ with st.sidebar:
     
 
     if not api_key_gai:
-        st.markdown("Get a gemini api key from https://aistudio.google.com/app/apikey")
+        st.markdown("Get a Gemini API key from https://aistudio.google.com/app/apikey")
 
 
 
@@ -359,9 +1034,9 @@ with st.sidebar:
     else:
         st.session_state.mode_is_fast = "Fast Mode"
 
-
     st.markdown("---")  # Add a separator for better visual organization
 
+    st.markdown('<div class="sidebar-title">🧩 RAG data & Embeddings</div>', unsafe_allow_html=True)
     # --- Helper for RAG Embedding Generation ---
     def generate_and_save_embedding(index_path):
         from langchain_huggingface import HuggingFaceEmbeddings
@@ -424,10 +1099,32 @@ with st.sidebar:
             embedding_status.empty()
             st.rerun()
 
+
+    st.markdown("---")  # Add a separator for better visual organization
+
+    # --- Execute Code Button (moved up) ---
+    has_code_response = any(
+        msg["role"] == "assistant" and "```" in msg["content"]
+        for msg in st.session_state.get("messages", [])
+    )
+    execute_disabled = not has_code_response
+    st.markdown('<div class="sidebar-title">⚡ Execute Code</div>', unsafe_allow_html=True)
+    if st.button(
+        "Run Last Code Block",
+        key="execute_code_btn",
+        disabled=execute_disabled,
+        help="This button is enabled when the last assistant response contains code."
+    ):
+        response = call_code()
+        st.session_state.memory.add_ai_message(response.content)
+        st.session_state.messages.append({"role": "assistant", "content": response.content})
+        if "```" in response.content:
+            st.rerun()
+    st.caption('Alternatively, type "plot!" or "execute!" in the chat to run the last code block.')
     st.markdown("---")  # Add a separator for better visual organization
     
     # Check if CLASS is already installed
-    st.markdown("### 🔧 CLASS Setup")
+    st.markdown('<div class="sidebar-title">🛠️ CLASS Setup</div>', unsafe_allow_html=True)
     if st.checkbox("Check CLASS installation status"):
         try:
             # Use sys.executable to run a simple test to see if classy can be imported
@@ -574,6 +1271,7 @@ with st.sidebar:
     
 
     st.markdown("---")  # Add a separator for better visual organization
+    st.markdown('<div class="sidebar-title">🐞 Debug Info and Logs</div>', unsafe_allow_html=True)
     st.session_state.debug = st.checkbox("🔍 Show Debug Info")
     if st.button("🗑️ Reset Chat"):
         st.session_state.clear()
@@ -592,723 +1290,8 @@ with st.sidebar:
                     st.image(plot_path, width=250, caption=os.path.basename(plot_path))
                     st.markdown("---")  # Add separator between plots
 
-# --- Retrieval + Prompt Construction ---
-def build_messages(context, question, system):
-    system_msg = SystemMessage(content=system)
-    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}")
-    return [system_msg] + st.session_state.memory.messages + [human_msg]
 
-#def build_messages_rating(context, question, answer, system):
-#    system_msg = SystemMessage(content=system)
-#    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}")
-#    return [system_msg] + st.session_state.memory.messages + [human_msg]
 
-#def build_messages_refinement(context, question, answer, feedback, system):
-#    system_msg = SystemMessage(content=system)
-#    human_msg = HumanMessage(content=f"Context:\n{context}\n\nQuestion:\n{question}\n\nAI Answer:\n{answer}\n\nReviewer Feedback:\n{feedback}")
-#    return [system_msg] + st.session_state.memory.messages + [human_msg]
-
-def format_memory_messages(memory_messages):
-    formatted = ""
-    for msg in memory_messages:
-        role = msg.type.capitalize()  # 'human' -> 'Human'
-        content = msg.content
-        formatted += f"{role}: {content}\n\n"
-    return formatted.strip()
-
-
-def retrieve_context(question):
-    docs = st.session_state.vector_store.similarity_search(question, k=4)
-    return "\n\n".join([doc.page_content for doc in docs])
-
-
-# Set up code execution environment
-#temp_dir = tempfile.TemporaryDirectory()
-
-class PlotAwareExecutor(LocalCommandLineCodeExecutor):
-    def __init__(self, **kwargs):
-        import tempfile
-        # Create a persistent plots directory if it doesn't exist
-        plots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots')
-        os.makedirs(plots_dir, exist_ok=True)
-        
-        # Still use a temp dir for code execution
-        temp_dir = tempfile.TemporaryDirectory()
-        kwargs['work_dir'] = temp_dir.name
-        super().__init__(**kwargs)
-        self._temp_dir = temp_dir
-        self._plots_dir = plots_dir
-
-    @contextlib.contextmanager
-    def _capture_output(self):
-        old_out, old_err = sys.stdout, sys.stderr
-        buf_out, buf_err = io.StringIO(), io.StringIO()
-        sys.stdout, sys.stderr = buf_out, buf_err
-        try:
-            yield buf_out, buf_err
-        finally:
-            sys.stdout, sys.stderr = old_out, old_err
-
-    def execute_code(self, code: str):
-        # 1) Extract code from markdown
-        match = re.search(r"```(?:python)?\n(.*?)```", code, re.DOTALL)
-        cleaned = match.group(1) if match else code
-        cleaned = cleaned.replace("plt.show()", "")
-        
-        # Add timestamp for saving figures only if there's plt usage in the code
-        timestamp = time.strftime("%Y-%m-%d-%H-%M-%S")
-        plot_filename = f'plot_{timestamp}.png'
-        plot_path = os.path.join(self._plots_dir, plot_filename)
-        temp_plot_path = None
-        
-        for line in cleaned.split("\n"):
-            if "plt.savefig" in line:
-                leading_spaces = line[:len(line) - len(line.lstrip())]  # get leading whitespace
-                temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-                new_line = f"{leading_spaces}plt.savefig('{temp_plot_path}', dpi=300)"
-                cleaned = cleaned.replace(line, new_line)
-                break
-                    #else:
-            # If there's a plot but no save, auto-insert save
-            #    if "plt." in cleaned:
-            #        temp_plot_path = os.path.join(self._temp_dir.name, f'temporary_{timestamp}.png')
-            #        cleaned += f"\nplt.savefig('{temp_plot_path}')"
-
-        # Create a temporary Python file to execute
-        temp_script_path = os.path.join(self._temp_dir.name, f'temp_script_{timestamp}.py')
-        with open(temp_script_path, 'w') as f:
-            f.write(cleaned)
-        
-        full_output = ""
-        try:
-            # 2) Capture stdout using subprocess
-            process = subprocess.Popen(
-                [sys.executable, temp_script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1, 
-                cwd=self._temp_dir.name
-            )
-            stdout, _ = process.communicate()
-
-            # 3) Format the output
-            with self._capture_output() as (out_buf, err_buf):
-                if stdout:
-                    out_buf.write(stdout)
-                stdout_text = out_buf.getvalue()
-                stderr_text = err_buf.getvalue()
-
-            if stdout_text:
-                full_output += f"STDOUT:\n{stdout_text}\n"
-            if stderr_text:
-                full_output += f"STDERR:\n{stderr_text}\n"
-                
-            # Copy plot from temp to persistent location if it exists
-            if temp_plot_path and os.path.exists(temp_plot_path):
-                import shutil
-                shutil.copy2(temp_plot_path, plot_path)
-                # Initialize the plots list if it doesn't exist
-                if "generated_plots" not in st.session_state:
-                    st.session_state.generated_plots = []
-                # Add the persistent plot path to session state
-                st.session_state.generated_plots.append(plot_path)
-
-        except Exception:
-            with self._capture_output() as (out_buf, err_buf):
-                import traceback
-                traceback.print_exc(file=sys.stderr)
-                full_output += f"STDERR:\n{err_buf.getvalue()}\n"
-
-        return full_output, plot_path
-
-# Example instantiation:
-executor = PlotAwareExecutor(timeout=10)
-
-# Global agent configurations
-
-
-
-def review_reply(feedback: Annotated[str,"Feedback on improving this reply to be accurate and relavant for the user prompt"]
-                  , rating: Annotated[int,"The rating of the reply on a scale of 1 to 10"], context_variables: ContextVariables) -> ReplyResult:
-    """Review the reply of the Ai Agent to the user prompt with respect to correctness, clarity and relevance for the user prompt"""
-    
-
-    
-    context_variables["feedback"] = feedback
-    context_variables["rating"] = rating
-    context_variables["revisions"] += 1
-
-    
-    messages = list(class_agent.chat_messages.values())[0]
-
-
-    #st.markdown(messages[-2])
-    reply = None
-    for item in messages:
-        if item['name'] == 'class_agent' or item['name'] == 'improve_reply_agent':
-            reply = item["content"]
-       
-            #  st.markdown("Last message from agent:")
-            #  st.markdown(reply)
-
-    if reply:
-        context_variables["last_answer"] = reply
-   
-    
-    if rating < 8 and context_variables["revisions"] < 3:
-
-        return ReplyResult(
-            context_variables=context_variables,
-            target=AgentNameTarget("improve_reply_agent"),
-            message=f'Please revise the answer considering this feedback {feedback}',
-        )
-    elif rating >= 8:
-        #st.markdown("Formatting final answer...")
-
-        return ReplyResult(
-            context_variables=context_variables,
-            target=AgentNameTarget("improve_reply_agent_final"),
-            message=f'The answer is already of sufficient quality. Focus on formatting the reply',
-        )
-    else:
-        return ReplyResult(
-            context_variables=context_variables,
-            target=AgentNameTarget("improve_reply_agent_final"),
-            message=f'Please revise the answer considering this feedback {feedback}',
-        )
-
-
-
-
-
-
-if st.session_state.selected_model in GPT_MODELS:
-
-    initial_config = LLMConfig(
-        api_type="openai", 
-        model=st.session_state.selected_model,
-        temperature=0.2,  # Low temperature for consistent initial responses
-        api_key=api_key,
-    )
-
-    review_config = LLMConfig(
-        api_type="openai", 
-        model=st.session_state.selected_model, 
-        temperature=0.5,  # Higher temperature for creative reviews
-        api_key=api_key,
-        )
-
-    #formatting_config = LLMConfig(
-    #    api_type="openai", 
-    #    model=st.session_state.selected_model, 
-    #    temperature=0.1,  # Moderate temperature for formatting
-    #    api_key=api_key,
-    #)
-
-    #code_execution_config = LLMConfig(
-    #    api_type="openai", 
-    #    model=st.session_state.selected_model, 
-    #    temperature=0.1,  # Very low temperature for code execution
-    #    api_key=api_key,
-    #)
-
-    # Global agent instances with updated system messages
-    class_agent = ConversableAgent(
-        name="class_agent",
-        system_message=Initial_Agent_Instructions,
-        description="Initial agent that answers user prompt. Expert in the CLASS code",
-        human_input_mode="NEVER",
-        llm_config=initial_config
-    )
-
-    review_agent = ConversableAgent(
-        name="review_agent",    
-        update_agent_state_before_reply=[
-            UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-        ],
-        human_input_mode="NEVER",
-
-        description="Reviews the AI answer to user prompt",
-        llm_config=review_config,
-        functions=review_reply,
-    )
-
-    refine_agent = ConversableAgent(
-        name="improve_reply_agent",    
-        update_agent_state_before_reply=[
-            UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-        ],
-        human_input_mode="NEVER",
-
-        description="Improves the AI reply by taking into account the feedback",
-        llm_config=initial_config,   
-    )
-
-    refine_agent_final = ConversableAgent(
-        name="improve_reply_agent_final",    
-        update_agent_state_before_reply=[
-            UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-        ],
-        human_input_mode="NEVER",
-
-        description="Improves the AI reply by taking into account the feedback",
-        llm_config=initial_config,   
-    )
-
-    #formatting_agent = ConversableAgent(
-    #    name="formatting_agent",    
-    #    update_agent_state_before_reply=[
-    #        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
-    #    ],
-    #    human_input_mode="NEVER",
-    #
-    #    description="Formats the final reply for the user",
-    #    llm_config=formatting_config
-    #)
-
-    # no other handoffs needed as rest will be determined by function call
-    class_agent.handoffs.set_after_work(AgentTarget(review_agent))
-    review_agent.handoffs.set_after_work(AgentTarget(refine_agent))
-    refine_agent.handoffs.set_after_work(AgentTarget(review_agent))
-    refine_agent_final.handoffs.set_after_work(TerminateTarget())
-
-    refine_agent.handoffs.add_llm_conditions([OnCondition(target=AgentTarget(refine_agent_final),condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))])
-    #review_agent.handoffs.add_context_condition(
-    #    OnContextCondition(
-    #        target=TerminateTarget(),
-    #        condition=ExpressionContextCondition(ContextExpression("${rating} > 7 or ${revisions} > 2"))
-    #    )
-    #)
-
-    #formatting_agent.handoffs.set_after_work(TerminateTarget())
-
-
-
-    #code_executor = ConversableAgent(
-    #    name="code_executor",
-    #    system_message="""{Code_Execution_Agent_Instructions}""",
-    #    human_input_mode="NEVER",
-    #    llm_config=code_execution_config,
-    #    code_execution_config={"executor": executor},
-    #    max_consecutive_auto_reply=50
-
-    #)
-else:
-    refine_agent_final = None
-
-if st.session_state.selected_model in GEMINI_MODELS:
-    initial_config_gai = LLMConfig(
-        api_type="google", 
-        model=st.session_state.selected_model,
-        temperature=0.2,  # Low temperature for consistent initial responses
-        api_key=api_key_gai,
-    )
-
-    review_config_gai = LLMConfig(
-        api_type="google", 
-        model=st.session_state.selected_model, 
-        temperature=0.5,  # Higher temperature for creative reviews
-        api_key=api_key_gai,
-    )
-
-    #formatting_config_gai = LLMConfig(
-    #    api_type="google", 
-    #    model=st.session_state.selected_model, 
-    #    temperature=0.1,  # Moderate temperature for formatting
-    #    api_key=api_key_gai,
-    #)
-
-    #code_execution_config_gai = LLMConfig(
-    #    api_type="google", 
-    #    model=st.session_state.selected_model, 
-    #    temperature=0.1,  # Very low temperature for code execution
-    #    api_key=api_key_gai,
-    #)
-
-    # Global agent instances with updated system messages for gemini
-    class_agent_gai = ConversableAgent(
-        name="class_agent",
-        system_message=Initial_Agent_Instructions,
-
-        description="Initial agent that answers user prompt. Expert in the CLASS code",
-        human_input_mode="NEVER",
-        llm_config=initial_config_gai
-    )
-
-    refine_agent_gai = ConversableAgent(
-        name="improve_reply_agent",    
-        update_agent_state_before_reply=[
-            UpdateSystemMessage(Refine_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-        ],
-        human_input_mode="NEVER",
-
-        description="Improves the AI reply by taking into account the feedback",
-        llm_config=initial_config_gai,   
-    )
-
-    review_agent_gai = ConversableAgent(
-        name="review_agent",    
-        update_agent_state_before_reply=[
-            UpdateSystemMessage(Review_Agent_Instructions),  # Inject the context variables into the system message, here we inject the user query to keep the review focuse
-        ],
-        human_input_mode="NEVER",
-
-        description="Reviews the AI answer to user prompt",
-        llm_config=review_config_gai,
-        #functions=review_reply,   # funcktions are often not working as planned with gemini
-    )
-
-
-    #formatting_agent_gai = ConversableAgent(
-    #    name="formatting_agent",    
-    #    update_agent_state_before_reply=[
-    #        UpdateSystemMessage(Formatting_Agent_Instructions),  # We inject the text to format directly into system message
-    #    ],
-
-    #    description="Formats the final reply for the user",
-    #    human_input_mode="NEVER",
-    #    llm_config=formatting_config_gai
-    #)
-
-    # no other handoffs needed as rest will be determined by function call
-    class_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
-    review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
-    refine_agent_gai.handoffs.set_after_work(TerminateTarget())
-    
-
-    #code_executor_gai = ConversableAgent(
-    #   name="code_executor",
-    #    system_message="""{Code_Execution_Agent_Instructions}""",
-    #    human_input_mode="NEVER",
-    #    llm_config=code_execution_config_gai,
-    #    code_execution_config={"executor": executor},
-    #    max_consecutive_auto_reply=50
-    #)
-else:
-    refine_agent_gai = None
-
-
-def call_ai(context, user_input):
-    if st.session_state.mode_is_fast == "Fast Mode":
-        messages = build_messages(context, user_input, Initial_Agent_Instructions)
-        response = []
-        for chunk in st.session_state.llm.stream(messages):
-            response.append(chunk.content)  # or chunk if using token chunks
-
-        response = "".join(response)
-
-        # Check if the answer contains code
-        #if "```python" in response:
-            # Add a note about code execution
-        #    response += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
-        #    return Response(content=response)
-        #else:
-        #    return Response(content=response)
-
-        return Response(content=response)
-    else:
-        # New Groupchat Workflow for detailed mode
-        st.markdown("Thinking (Deep Thought Mode)... ")
-        conversation_history = format_memory_messages(st.session_state.memory.messages)
-        shared_context = ContextVariables(data =  {
-            "user_prompt": user_input,
-            "last_answer": "see chat history",
-            "feedback": "see chat history",
-            "rating": 0,
-            "revisions": 0,
-        })
-        if st.session_state.selected_model in GEMINI_MODELS:
-            pattern = AutoPattern(
-                initial_agent=class_agent_gai,  # Agent that starts the conversation
-                agents=[class_agent_gai,review_agent_gai,refine_agent_gai],
-                group_manager_args={"llm_config": initial_config_gai},
-                context_variables=shared_context,
-            )
-        else:
-            pattern = AutoPattern(
-                initial_agent=class_agent,  # Agent that starts the conversation
-                agents=[class_agent,review_agent,refine_agent,refine_agent_final],
-                group_manager_args={"llm_config": initial_config},
-                context_variables=shared_context,
-            )
-        st.markdown("Generating answer...")
-        result, context_variables, last_agent = initiate_group_chat(
-            pattern=pattern,
-            messages=f"Context from documents: {context}\n\nConversation history:\n{conversation_history}\n\nUser question: {user_input}",
-            max_rounds=10,
-        )
-        formatted_answer = None  # default to nothing
-
-        # 1. If the formatting agent gave the last reply, use that
-        if last_agent == refine_agent_final or last_agent == refine_agent_gai:
-            formatted_answer = result.chat_history[-1]["content"]
-
-    
-        # 2. Otherwise, use shared_context["last_answer"] if it's non-empty
-        if not formatted_answer and shared_context.get("last_answer"):
-            formatted_answer = shared_context["last_answer"]
-                   
-        # 3. Otherwise, fall back to the initial agent's last message
-    
-        if not formatted_answer:
-            try:
-                for item in result.chat_history:
-                    st.markdown(item)
-                    if item['name'] == 'class_agent' or item['name'] == 'imporve_reply_agent':
-                        formatted_answer = item["content"]
-            except:
-                formatted_answer = 'failed to load chat history'
-        
-
-        if st.session_state.debug:
-            st.session_state.debug_messages.append(("Formatted Answer", formatted_answer))
-            st.session_state.debug_messages.append(("Feedback", shared_context["feedback"]))
-
-
-        # Check if the answer contains code
-        #if "```python" in formatted_answer:
-            # Add a note about code execution
-        #    formatted_answer += "\n\n> 💡 **Note**: This answer contains code. If you want to execute it, type 'execute!' in the chat."
-        #    return Response(content=formatted_answer)
-        #else:
-        #    return Response(content=formatted_answer)
-        return Response(content=formatted_answer)
-def call_code():
-    #if st.session_state.selected_model in GEMINI_MODELS:
-    #    st.markdown("Code execution only supprted in openai at the moment")
-    #    response = Response(content="Cannot excecute code with gemini api")
-    #else:
-        # Find the last assistant message containing code
-    last_assistant_message = None
-    for message in reversed(st.session_state.messages):
-        if message["role"] == "assistant" and "```" in message["content"]:
-            last_assistant_message = message["content"]
-            break
-    
-    if last_assistant_message:
-        st.markdown("Executing code...")
-        st.info("🚀 Executing cleaned code...")
-        #chat_result = code_executor.initiate_chat(
-        #    recipient=code_executor,
-        #    message=f"Please execute this code:\n{last_assistant_message}",
-        #    max_turns=1,
-        #    summary_method="last_msg"
-        #)
-        #execution_output = chat_result.summary
-        execution_output, plot_path = executor.execute_code(last_assistant_message)
-        st.subheader("Execution Output")
-        st.text(execution_output)  # now contains both STDOUT and STDERR
-        
-        if os.path.exists(plot_path):
-            st.success("✅ Plot generated successfully!")
-            # Display the plot
-            #st.image(plot_path, use_container_width=True)
-            st.image(plot_path, width=700)
-        else:
-            st.warning("⚠️ No plot was generated")
-        
-        has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
-
-        
-        # Check for errors and iterate if needed
-        max_iterations = 3  # Maximum number of iterations to prevent infinite loops
-        current_iteration = 0
-        
-        while has_errors and current_iteration < max_iterations:
-            current_iteration += 1
-            st.error(f"Previous error: {execution_output}")  # Show the actual error message
-            st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
-
-            # Get new review with error information
-            #review_message = f"""
-            #Previous answer had errors during execution:
-            #{execution_output}
-
-            #Please review and suggest fixes for this answer. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
-            #{last_assistant_message}
-            #"""
-            #chat_result_2 = review_agent.initiate_chat(
-            #    recipient=review_agent,
-            #    message=review_message,
-            #    max_turns=1,
-            #    summary_method="last_msg"
-            #)
-            #review_feedback = chat_result_2.summary
-            #if st.session_state.debug:
-            #    st.session_state.debug_messages.append(("Error Review Feedback", review_feedback))
-
-            # Get corrected version
-            #chat_result_3 = initial_agent.initiate_chat(
-            #    recipient=initial_agent,
-            #    message=f"""Original answer: {last_assistant_message}
-            #    Review feedback with error fixes: {review_feedback}
-            #    IMPORTANT: Only fix actual errors in the code blocks. Preserve all working code exactly as it is.""",
-            #    max_turns=1,
-            #    summary_method="last_msg"
-            #)
-            #corrected_answer = chat_result_3.summary
-            #if st.session_state.debug:
-            #    st.session_state.debug_messages.append(("Corrected Answer", corrected_answer))
-
-            # Format the corrected answer
-            #chat_result_4 = formatting_agent.initiate_chat(
-            #    recipient=formatting_agent,
-            #    message=f"""Please format this corrected answer while preserving all code blocks:
-            #    {corrected_answer}
-            #    """,
-            #    max_turns=1,
-            #    summary_method="last_msg"
-            #)
-            #formatted_answer = chat_result_4.summary
-            #if st.session_state.debug:
-            #    st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
-
-            # get context on error message
-            context = retrieve_context(execution_output)
-
-            review_message = f"""
-            Context:\n{context}\n\nQuestion:
-
-            Previous answer had errors during execution:
-            {execution_output}
-
-            Please modify the code to fix those errors. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
-            {last_assistant_message}
-            """
-
-
-            # initialise context to update agent messages
-            shared_context = ContextVariables(data =  {
-                "user_prompt": "Correct the errors in the code",
-                "last_answer": last_assistant_message,
-                "feedback": f" Previous answer had errors during execution: {execution_output}",
-                "rating": 0,
-                "revisions": 0,
-            })
-
-            if st.session_state.selected_model in GEMINI_MODELS:
-                pattern = AutoPattern(
-                    initial_agent=refine_agent_gai,  # Agent that starts the conversation
-                    agents=[refine_agent_gai],
-                    group_manager_args={"llm_config": initial_config_gai},
-                    context_variables=shared_context,
-                )
-            else:
-                pattern = AutoPattern(
-                    initial_agent=refine_agent_final,  # Agent that starts the conversation
-                    agents=[refine_agent_final],
-                    group_manager_args={"llm_config": initial_config},
-                    context_variables=shared_context,
-                )
-            
-            result, context_variables, last_agent = initiate_group_chat(
-                pattern=pattern,
-                messages=review_message,
-                max_rounds=2,
-            )
-
-            #if st.session_state.selected_model in GEMINI_MODELS:
-            #    chat_result = review_agent_gai.initiate_chat(
-            #        recipient=refine_agent_gai,
-            #        message=review_message,
-            #        max_turns=1,
-            #        summary_method="last_msg"
-            #    )
-            #else:
-            #    chat_result = review_agent.initiate_chat(
-            #        recipient=refine_agent,
-            #        message=review_message,
-            #        max_turns=1,
-            #        summary_method="last_msg"
-            #    )
-
-            formatted_answer = result.chat_history[-1]["content"]
-            if st.session_state.debug:
-                st.session_state.debug_messages.append(("Error Review Feedback", formatted_answer))
-
-
-            # Execute the corrected code
-            st.info("🚀 Executing corrected code...")
-            #chat_result = code_executor.initiate_chat(
-            #    recipient=code_executor,
-            #    message=f"Please execute this corrected code:\n{formatted_answer}",
-            #    max_turns=1,
-            #    summary_method="last_msg"
-            #)
-            #execution_output = chat_result.summary
-            execution_output, plot_path = executor.execute_code(formatted_answer)
-            st.subheader("Execution Output")
-            st.text(execution_output)  # now contains both STDOUT and STDERR
-            
-            if os.path.exists(plot_path):
-                st.success("✅ Plot generated successfully!")
-                # Display the plot
-                st.image(plot_path, width=700)
-            else:
-                st.warning("⚠️ No plot was generated")
-            
-            if st.session_state.debug:
-                st.session_state.debug_messages.append(("Execution Output", execution_output))
-            
-            # If we've reached the end of iterations and we're successful
-            #if not has_errors or current_iteration == max_iterations:
-                # Add successful execution to the conversation with plot
-            #    final_answer = formatted_answer if formatted_answer else last_assistant_message
-            #    response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{final_answer}\n```"
-                
-            #    # Add plot path marker for rendering in the conversation
-            #    if os.path.exists(plot_path):
-            #        response_text += f"\n\nPLOT_PATH:{plot_path}\n"
-                    
-            #    if current_iteration > 0:
-            #        response_text = f"After {current_iteration} correction attempts: " + response_text
-                
-                # Set the response variable with our constructed text that includes plot
-            #   response = Response(content=response_text)
-            
-            # Update last_assistant_message with the formatted answer for next iteration
-            last_assistant_message = formatted_answer
-            has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
-
-        if has_errors:
-            st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
-            st.markdown(f"> ❌ Last execution message:\n{execution_output}")
-
-            # Display the final code that was successfully executed
-            with st.expander("View Failed Code", expanded=False):
-                st.markdown(last_assistant_message)
-            response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
-        else:
-            # Check for common error indicators in the output
-            if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
-                st.markdown("> ⚠️ **Note**: Code execution completed but with errors. You can request changes by describing them in the chat.")
-                st.markdown(f"> ❌ Execution message:\n{execution_output}")
-                
-                    # Display the final code that was successfully executed
-                with st.expander("View Failed Code", expanded=False):
-                    st.markdown(last_assistant_message)
-                response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
-
-            else:
-                st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
-                
-                # Display the final code that was successfully executed
-                with st.expander("View Successfully Executed Code", expanded=False):
-                    st.markdown(last_assistant_message)
-                    
-                # Create a response message that includes the plot path
-                response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
-                
-                # Add plot path marker for rendering in the conversation
-                if os.path.exists(plot_path):
-                    response_text += f"\n\nPLOT_PATH:{plot_path}\n"
-                    
-                response = Response(content=response_text)
-    else:
-        response = Response(content="No code found to execute in the previous messages.")
-
-    return response
 # --- Chat Input ---
 if OPTIONS:
     user_input = st.chat_input("Type your prompt here...")
@@ -1393,7 +1376,9 @@ if user_input:
 
         st.session_state.memory.add_ai_message(response.content)
         st.session_state.messages.append({"role": "assistant", "content": response.content})
-
+        # Immediately rerun if the assistant message contains code, to update the sidebar button
+        if "```" in response.content:
+            st.rerun()
 
 
 # --- Display Welcome Message (outside of sidebar) ---
@@ -1447,32 +1432,3 @@ if "llm_initialized" in st.session_state and st.session_state.llm_initialized an
         if st.session_state.selected_model in GEMINI_MODELS:
             # non streaming greeting
             st.markdown(greeting.content)
-
-
-# --- Debug Info ---
-if st.session_state.debug:
-    with st.sidebar.expander("🛠️ Debug Information", expanded=True):
-        # Create a container for debug messages
-        debug_container = st.container()
-        with debug_container:
-            st.markdown("### Debug Messages")
-            
-            # Display all debug messages in a scrollable container
-            for title, message in st.session_state.debug_messages:
-                st.markdown(f"### {title}")
-                st.markdown(message)
-                st.markdown("---")
-    
-    with st.sidebar.expander("🛠️ Context Used"):
-        if "context" in locals():
-            st.markdown(context)
-        else:
-            st.markdown("No context retrieved yet.")
-
-if st.sidebar.button("execute code"):
-    response = call_code()
-    st.session_state.memory.add_ai_message(response.content)
-    st.session_state.messages.append({"role": "assistant", "content": response.content})
-
-
-# Utility function to gather all docs from class-data
