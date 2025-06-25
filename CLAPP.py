@@ -138,7 +138,7 @@ def inject_global_styles_and_font(font_name: str):
             font-weight: 700 !important;
             margin-bottom: 0.5rem !important;
             margin-top: 0.5rem !important;
-            color: #222;
+            color: var(--text-color);
             letter-spacing: 1px;
         }}
         .sidebar-title {{
@@ -147,7 +147,7 @@ def inject_global_styles_and_font(font_name: str):
             font-weight: 600 !important;
             margin-bottom: 0.5rem !important;
             margin-top: 0.5rem !important;
-            color: #222;
+            color: var(--text-color);
             letter-spacing: 0.5px;
         }}
         </style>
@@ -1293,9 +1293,21 @@ with st.sidebar:
 
 
 # --- Chat Input ---
-if OPTIONS:
+if OPTIONS and st.session_state.vector_store:
     user_input = st.chat_input("Type your prompt here...")
 else:
+    if not api_key and not api_key_gai:
+        st.markdown("""
+            <div style="text-align: center; font-size: 1.5rem; font-weight: 600; margin-top: 1rem;">
+                Please enter an API key to use the app
+            </div>
+        """, unsafe_allow_html=True)
+    elif not st.session_state.vector_store:
+        st.markdown("""
+            <div style="text-align: center; font-size: 1.5rem; font-weight: 600; margin-top: 1rem;">
+                Please generate an embedding before using the app
+            </div>
+        """, unsafe_allow_html=True)
     user_input = None
 
 # --- Display Full Chat History ---
