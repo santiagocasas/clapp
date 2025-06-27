@@ -454,6 +454,7 @@ def get_agents():
             "refine_agent": refine_agent,
             "refine_agent_final": refine_agent_final,
             "initial_config": initial_config,
+            "refine_agent_gai": None,
         }
         return st.session_state.agents
     elif st.session_state.selected_model in GEMINI_MODELS:
@@ -503,6 +504,7 @@ def get_agents():
             "review_agent_gai": review_agent_gai,
             "refine_agent_gai": refine_agent_gai,
             "initial_config_gai": initial_config_gai,
+            "refine_agent_final": None,
         }
         return st.session_state.agents
     else:
