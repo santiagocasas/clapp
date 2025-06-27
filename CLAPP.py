@@ -200,6 +200,8 @@ def init_session():
         st.session_state.saved_api_key = None
     if "saved_api_key_gai" not in st.session_state:
         st.session_state.saved_api_key_gai = None
+    if "agents" not in st.session_state:
+        st.session_state.agents = None
 
 
 init_session()
@@ -351,7 +353,7 @@ def review_reply(feedback: Annotated[str,"Feedback on improving this reply to be
     context_variables["revisions"] += 1
 
     
-    messages = list(class_agent.chat_messages.values())[0]
+    messages = list(st.session_state.agents['class_agent'].chat_messages.values())[0]
 
 
     #st.markdown(messages[-2])
@@ -446,13 +448,14 @@ def get_agents():
         refine_agent.handoffs.add_llm_conditions([
             OnCondition(target=AgentTarget(refine_agent_final), condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))
         ])
-        return {
+        st.session_state.agents = {
             "class_agent": class_agent,
             "review_agent": review_agent,
             "refine_agent": refine_agent,
             "refine_agent_final": refine_agent_final,
             "initial_config": initial_config,
         }
+        return st.session_state.agents
     elif st.session_state.selected_model in GEMINI_MODELS:
         initial_config_gai = LLMConfig(
             api_type="google",
@@ -495,12 +498,13 @@ def get_agents():
         class_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
         review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
         refine_agent_gai.handoffs.set_after_work(TerminateTarget())
-        return {
+        st.session_state.agents = {
             "class_agent_gai": class_agent_gai,
             "review_agent_gai": review_agent_gai,
             "refine_agent_gai": refine_agent_gai,
             "initial_config_gai": initial_config_gai,
         }
+        return st.session_state.agents
     else:
         return {}
 
