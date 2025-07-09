@@ -138,7 +138,7 @@ def inject_global_styles_and_font(font_name: str):
             font-weight: 700 !important;
             margin-bottom: 0.5rem !important;
             margin-top: 0.5rem !important;
-            color: #222;
+            color: var(--text-color);
             letter-spacing: 1px;
         }}
         .sidebar-title {{
@@ -147,7 +147,7 @@ def inject_global_styles_and_font(font_name: str):
             font-weight: 600 !important;
             margin-bottom: 0.5rem !important;
             margin-top: 0.5rem !important;
-            color: #222;
+            color: var(--text-color);
             letter-spacing: 0.5px;
         }}
         </style>
@@ -200,6 +200,8 @@ def init_session():
         st.session_state.saved_api_key = None
     if "saved_api_key_gai" not in st.session_state:
         st.session_state.saved_api_key_gai = None
+    if "agents" not in st.session_state:
+        st.session_state.agents = None
 
 
 init_session()
@@ -351,7 +353,7 @@ def review_reply(feedback: Annotated[str,"Feedback on improving this reply to be
     context_variables["revisions"] += 1
 
     
-    messages = list(class_agent.chat_messages.values())[0]
+    messages = list(st.session_state.agents['class_agent'].chat_messages.values())[0]
 
 
     #st.markdown(messages[-2])
@@ -446,13 +448,15 @@ def get_agents():
         refine_agent.handoffs.add_llm_conditions([
             OnCondition(target=AgentTarget(refine_agent_final), condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))
         ])
-        return {
+        st.session_state.agents = {
             "class_agent": class_agent,
             "review_agent": review_agent,
             "refine_agent": refine_agent,
             "refine_agent_final": refine_agent_final,
             "initial_config": initial_config,
+            "refine_agent_gai": None,
         }
+        return st.session_state.agents
     elif st.session_state.selected_model in GEMINI_MODELS:
         initial_config_gai = LLMConfig(
             api_type="google",
@@ -495,12 +499,14 @@ def get_agents():
         class_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
         review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
         refine_agent_gai.handoffs.set_after_work(TerminateTarget())
-        return {
+        st.session_state.agents = {
             "class_agent_gai": class_agent_gai,
             "review_agent_gai": review_agent_gai,
             "refine_agent_gai": refine_agent_gai,
             "initial_config_gai": initial_config_gai,
+            "refine_agent_final": None,
         }
+        return st.session_state.agents
     else:
         return {}
 
@@ -1293,9 +1299,21 @@ with st.sidebar:
 
 
 # --- Chat Input ---
-if OPTIONS:
+if OPTIONS and st.session_state.vector_store:
     user_input = st.chat_input("Type your prompt here...")
 else:
+    if not api_key and not api_key_gai:
+        st.markdown("""
+            <div style="text-align: center; font-size: 1.5rem; font-weight: 600; margin-top: 1rem;">
+                Please enter an API key to use the app
+            </div>
+        """, unsafe_allow_html=True)
+    elif not st.session_state.vector_store:
+        st.markdown("""
+            <div style="text-align: center; font-size: 1.5rem; font-weight: 600; margin-top: 1rem;">
+                Please generate an embedding before using the app
+            </div>
+        """, unsafe_allow_html=True)
     user_input = None
 
 # --- Display Full Chat History ---
