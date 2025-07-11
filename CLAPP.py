@@ -980,7 +980,7 @@ with st.sidebar:
     
 
     if not api_key_gai:
-        st.markdown("Get a Gemini API key from https://aistudio.google.com/app/apikey")
+        st.markdown("Get a Gemini API key from https://aistudio.google.com/apikey")
 
 
 
