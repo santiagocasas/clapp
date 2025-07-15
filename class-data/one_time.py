@@ -1,18 +1,23 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# The goal of this script is to plot the evolution of a few transfer functions that are interesting
+# to understand CMB physics. We will show them as a function of wavenumber k, at the time of recombination.
+#
+# In the plot below, we will plot the square of some of these transfer functions.
+#
+# Finally, in the third plot, we will comapre these squares with the shape of the CMB temperature spectrum
+# (total + with individual contributions: Sachs-Wolfe, Doppler, etc.)
+#
+# For the horizontal axis of the last plot, we will match the units of the multipoles l
+# in order to show that there is a mapping l = k (tau_0-tau)
 
 
 # import necessary modules
 from classy import Class
 from math import pi
-get_ipython().run_line_magic('matplotlib', 'inline')
-import matplotlib
+#get_ipython().run_line_magic('matplotlib', 'inline')
 import matplotlib.pyplot as plt
-
-
-# In[ ]:
 
 
 #####################################################
@@ -20,22 +25,20 @@ import matplotlib.pyplot as plt
 # Cosmological parameters and other CLASS parameters
 #
 #####################################################
-common_settings = {# LambdaCDM parameters
-                   'h':0.67810,
-                   'omega_b':0.02238280,
-                   'omega_cdm':0.12038,
-                   'A_s':2.100549e-09,
-                   'n_s': 0.9660499,
-                   'tau_reio':0.05430842,
+common_settings = {# LambdaCDM parameters (Planck 18 + lensing + BAO bestfit)
+                   'omega_b':2.255065e-02,
+                   'omega_cdm':1.193524e-01,
+                   'H0':6.776953e+01,
+                   'A_s':2.123257e-09,
+                   'n_s':9.686025e-01,
+                   'z_reio':8.227371e+00,
                    # output and precision parameters
                    'output':'tCl,mTk,vTk',
                    'l_max_scalars':5000,
                    'P_k_max_1/Mpc':10.0,
+                   # We want to display all transfer functions in the Newtonian gauge
                    'gauge':'newtonian'
                    }
-
-
-# In[ ]:
 
 
 ###############
@@ -45,7 +48,8 @@ common_settings = {# LambdaCDM parameters
 ###############
 M = Class()
 M.set(common_settings)
-M.compute()
+# get derived parameters computed by CLASS for this cosmology: here we get
+# the redshift at recombination (z_rec), the conformal time at recombination (tau_rec), and the conformal time today (conformal_age)
 derived = M.get_current_derived_parameters(['z_rec','tau_rec','conformal_age'])
 print (derived.keys())
 z_rec = derived['z_rec']
@@ -57,9 +61,6 @@ print ('z_rec=',z_rec)
 tau_0_minus_tau_rec_hMpc = (derived['conformal_age']-derived['tau_rec'])*M.h()
 
 
-# In[ ]:
-
-
 ################
 #
 # call CLASS again for the perturbations (will compute transfer functions at input value z_rec)
@@ -68,9 +69,8 @@ tau_0_minus_tau_rec_hMpc = (derived['conformal_age']-derived['tau_rec'])*M.h()
 M.empty() # reset input parameters to default, before passing a new parameter set
 M.set(common_settings)
 M.set({'z_pk':z_rec})
-M.compute()
 #
-# save the total Cl's (we will plot them in the last step)
+# save the total unlensed Cl's (we will plot them in the last step)
 #
 cl_tot = M.raw_cl(5000)
 #
@@ -89,9 +89,6 @@ R = 3./4.*M.Omega_b()/M.Omega_g()/(1+z_rec)  # R = 3/4 * (rho_b/rho_gamma) at z_
 zero_point = -(1.+R)*psi                     # zero point of oscillations: -(1.+R)*psi
 Theta0_amp = max(Theta0.max(),-Theta0.min()) # Theta0 oscillation amplitude (for vertical scale of plot)
 print ('At z_rec: R=',R,', Theta0_amp=',Theta0_amp)
-
-
-# In[ ]:
 
 
 # use table of background quantitites to find the wavenumbers corresponding to
@@ -119,9 +116,6 @@ ks = ks_at_tau(tau_rec)
 print ('at tau_rec=',tau_rec,', kh=',kh,', ks=',ks)
 
 
-# In[ ]:
-
-
 #####################
 #
 # call CLASS with TSW (intrinsic temperature + Sachs-Wolfe) and save
@@ -130,11 +124,7 @@ print ('at tau_rec=',tau_rec,', kh=',kh,', ks=',ks)
 M.empty()           # clean input
 M.set(common_settings) # new input
 M.set({'temperature contributions':'tsw'})
-M.compute()
 cl_TSW = M.raw_cl(5000)
-
-
-# In[ ]:
 
 
 ######################
@@ -145,11 +135,7 @@ cl_TSW = M.raw_cl(5000)
 M.empty()
 M.set(common_settings)
 M.set({'temperature contributions':'eisw'})
-M.compute()
 cl_eISW = M.raw_cl(5000)
-
-
-# In[ ]:
 
 
 ######################
@@ -160,11 +146,7 @@ cl_eISW = M.raw_cl(5000)
 M.empty()
 M.set(common_settings)
 M.set({'temperature contributions':'lisw'})
-M.compute()
 cl_lISW = M.raw_cl(5000)
-
-
-# In[ ]:
 
 
 ######################
@@ -175,11 +157,7 @@ cl_lISW = M.raw_cl(5000)
 M.empty()
 M.set(common_settings)
 M.set({'temperature contributions':'dop'})
-M.compute()
 cl_Doppler = M.raw_cl(5000)
-
-
-# In[ ]:
 
 
 #################
@@ -283,4 +261,3 @@ ax_Cl.semilogx(cl_tot['ell']/tau_0_minus_tau_rec_hMpc,1.e10*cl_tot['ell']*(cl_to
 #
 ax_Cl.legend(loc='right',bbox_to_anchor=(1.4, 0.5))
 fig.savefig('one_time_with_cl_tot.pdf',bbox_inches='tight')
-
