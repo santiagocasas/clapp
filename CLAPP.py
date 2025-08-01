@@ -166,7 +166,7 @@ with col2:
 
 # --- Model Lists ---
 GPT_MODELS = [ "gpt-4o-mini", "gpt-4o", "gpt-4.1"]
-GEMINI_MODELS = [ "gemini-2.0-flash", "gemini-1.5-flash","gemini-2.5-flash-preview-05-20"]
+GEMINI_MODELS = [ "gemini-2.5-flash-lite","gemini-2.5-flash", "gemini-2.5-pro"]
 #ALL_MODELS = GPT_MODELS + GEMINI_MODELS
 
 # New prompts for the swarm
@@ -1033,9 +1033,9 @@ with st.sidebar:
         st.markdown("<div style='height: 0.5em'></div>", unsafe_allow_html=True)
         desc_cols = st.columns(2)
         with desc_cols[0]:
-            st.caption("✨ **Fast Mode**: Single agent setup, quick responses with good quality.")
+            st.caption("✨ **Fast Mode**: Single agent setup, quick responses with good quality, but prone to initial errors.")
         with desc_cols[1]:
-            st.caption("🎯 **Deep Thought Mode**: Multi-agent setup, more refined responses, takes longer.")
+            st.caption("🎯 **Deep Thought Mode**: Multi-agent setup, responses take longer, more refined, more accurate at first attempt.")
         
     else:
         st.session_state.mode_is_fast = "Fast Mode"
