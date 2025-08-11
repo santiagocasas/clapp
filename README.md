@@ -1,3 +1,17 @@
+---
+title: CLAPP
+emoji: 🚀
+colorFrom: red
+colorTo: red
+sdk: docker
+app_port: 8501
+tags:
+- streamlit
+pinned: false
+short_description: 'CLAPP: CLASS LLM Agent for Pair Programming'
+license: mit
+---
+
 # CLAPP - CLASS LLM Agent for Pair Programming
 
 <p align="center">

@@ -32,8 +32,6 @@ make clean || echo "Clean step failed, but continuing..."
 
 # Install dependencies
 echo "=== Installing Python dependencies ==="
-echo "Installing numpy..."
-pip install "numpy<=1.26" -v || { echo "Failed to install numpy"; exit 1; }
 
 echo "Installing scipy..."
 pip install "scipy" -v || { echo "Failed to install scipy"; exit 1; }
