@@ -1,0 +1,53 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: 'CLAPP: CLASS LLM Agent for Pair Programming'
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Santiago
+    family-names: Casas
+    email: casas@physik.rwth-aachen.de
+    affiliation: 'DLR, RWTH Aachen University'
+    orcid: 'https://orcid.org/0000-0002-4751-5138'
+    name-suffix: Dr.
+  - given-names: Christian
+    family-names: Fidler
+    name-suffix: P.D.
+    email: fidler@physik.rwth-aachen.de
+    affiliation: RWTH Aachen University
+identifiers:
+  - type: doi
+    value: 10.48550/arXiv.2508.05728
+    description: arXiv pre-print
+repository-code: 'https://github.com/santiagocasas/clapp'
+url: 'https://classclapp.streamlit.app/'
+abstract: >-
+  We introduce CLAPP (CLASS LLM Agent for Pair Programming),
+  an interactive AI assistant designed to support
+  researchers working with the Einstein-Boltzmann solver
+  CLASS. CLAPP leverages large language models (LLMs) and
+  domain-specific retrieval to provide conversational coding
+  support for CLASS-answering questions, generating code,
+  debugging errors, and producing plots. Its architecture
+  combines multi-agent LLM orchestration, semantic search
+  across CLASS documentation, and a live Python execution
+  environment. Deployed as a user-friendly web application,
+  CLAPP lowers the entry barrier for scientists unfamiliar
+  with AI tools and enables more productive human-AI
+  collaboration in computational and numerical cosmology.
+keywords:
+  - cosmology
+  - LLM
+  - AI
+  - ML
+  - agents
+  - CLASS
+  - python
+license: MIT
+commit: 2ec22a8e99b81f1c0aabcc49347f90da3e93a4b7
+version: v0.9.7
+date-released: '2025-08-07'
