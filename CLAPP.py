@@ -170,6 +170,29 @@ GEMINI_MODELS = [ "gemini-2.5-flash-lite","gemini-2.5-flash", "gemini-2.5-pro"]
 #ALL_MODELS = GPT_MODELS + GEMINI_MODELS
 
 # New prompts for the swarm
+
+#class_instruct = "prompts/class_instructions.txt"
+#class_refine = "prompts/class_refinement.txt"
+#review = "prompts/review_instructions.txt"
+#mistakes = "prompts/common_mistakes.txt"
+
+#out = "prompts/merged_class_instructions.txt"
+#with open(class_instruct, encoding="utf-8") as f1, \
+#     open(mistakes, encoding="utf-8") as f2, \
+#     open(out, "w", encoding="utf-8") as fo:
+#    fo.write(f1.read().rstrip() + "\n\n" + f2.read().rstrip() + "\n")
+#out = "prompts/merged_class_refinement.txt"
+#with open(class_refine, encoding="utf-8") as f1, \
+#     open(mistakes, encoding="utf-8") as f2, \
+#     open(out, "w", encoding="utf-8") as fo:
+#    fo.write(f1.read().rstrip() + "\n\n" + f2.read().rstrip() + "\n")
+#out = "prompts/merged_review_instructions.txt"
+#with open(review, encoding="utf-8") as f1, \
+#     open(mistakes, encoding="utf-8") as f2, \
+#     open(out, "w", encoding="utf-8") as fo:
+#    fo.write(f1.read().rstrip() + "\n\n" + f2.read().rstrip() + "\n")
+
+
 Initial_Agent_Instructions = read_prompt_from_file("prompts/class_instructions.txt") # Reuse or adapt class_instructions
 Refine_Agent_Instructions = read_prompt_from_file("prompts/class_refinement.txt") # Instructions on imporving an answer
 Review_Agent_Instructions = read_prompt_from_file("prompts/review_instructions.txt") # Adapt rating_instructions
@@ -236,7 +259,15 @@ def format_memory_messages(memory_messages):
 
 def retrieve_context(question):
     docs = st.session_state.vector_store.similarity_search(question, k=4)
-    return "\n\n".join([doc.page_content for doc in docs])
+    rag = "\n\n".join([doc.page_content for doc in docs])
+
+
+    with open("prompts/common_mistakes.txt", encoding="utf-8") as f:
+        extra = f.read().strip()
+
+    context = "\n\n### Common mistakes \n" + extra + "\n\n### Retrieved Information\n" + rag + "\n"
+
+    return context
 
 
 # Set up code execution environment
@@ -1341,7 +1372,14 @@ if user_input:
         st.markdown(user_input)
 
     st.session_state.memory.add_user_message(user_input)
-    context = retrieve_context(user_input)
+
+    last_ai = next((m for m in reversed(st.session_state.memory.messages)
+                if getattr(m, "type", None) in ("ai", "assistant")
+                or m.__class__.__name__.lower().startswith("aimessage")), None)
+
+    last_ai_content = getattr(last_ai, "content", None) if last_ai else None
+    context = retrieve_context('Ai: ' + last_ai_content +'\n\n User:' + user_input )
+
     
     # Count prompt tokens using tiktoken if needed
     try:

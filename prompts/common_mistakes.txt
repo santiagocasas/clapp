@@ -1,0 +1,55 @@
+Below is a list of common coding mistakes using classy. Only consider them if your reply contains code.
+The format is 
+## Incorrect Code
+The piece of faulty code
+## Corrected Code
+The corresponding correct code example
+## Comments 
+Optional comments to consider
+
+When creating code check to not repeat the following common mistakes
+
+## Incorrect Code
+
+params = {
+    'output': 'tCl,pCl,lCl',
+    'l_max': 2500,
+}
+
+m = Class(params)
+
+m.compute()
+
+# Get the Cls dictionary
+cl_dict = m.get_cmb_cl(ப்பெ)
+
+# Extract the multipole moments (l values)
+ls = cl_dict['ell']
+
+## Corrected Code
+
+# 1. Initialize the Class object
+M = Class()
+
+# 2. Set cosmological parameters
+params = {
+    'output': 'tCl,pCl,lCl',  # Request temperature, polarization, and lensing spectra
+    'l_max_scalars': 2500,    # Maximum multipole for scalar perturbations
+}
+
+M.set(params)
+
+# 3. Compute the power spectra
+M.compute()
+
+# 4. Retrieve the angular power spectra
+# The raw_cl() method returns a dictionary with 'ell', 'tt', 'ee', 'te', 'bb', 'pp', 'tp'
+# It computes unlensed spectra. For lensed spectra, use M.get_cl()
+cls = M.raw_cl() 
+
+# 5. Extract C_l^TT and multipoles
+ll = cls['ell'][2:]  # Exclude l=0, 1 which are usually zero or undefined for Cls
+clTT = cls['tt'][2:] # Extract TT spectrum
+
+## Comments
+The first version of the code used 'l_max' which does not exist in classy and tries to extract the Cls in a faulty manner. 
