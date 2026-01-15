@@ -11,7 +11,12 @@ import json
 import os
 import base64
 import getpass
+import requests
 from collections import defaultdict
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 
 from cryptography.fernet import Fernet
@@ -103,6 +108,40 @@ def read_keys_from_file(file_path):
 def read_prompt_from_file(path):
     with open(path, 'r') as f:
         return f.read()
+
+def load_local_secrets():
+    secrets_path = os.path.join(os.path.dirname(__file__), "secrets.toml")
+    if not os.path.exists(secrets_path):
+        return {}
+    try:
+        with open(secrets_path, "rb") as file:
+            secrets = tomllib.load(file)
+        return secrets if isinstance(secrets, dict) else {}
+    except Exception:
+        return {}
+
+LOCAL_SECRETS = load_local_secrets()
+
+def get_local_secret(key: str):
+    return LOCAL_SECRETS.get(key)
+
+def normalize_base_url(base_url: str) -> str:
+    return base_url.rstrip("/") + "/"
+
+def blablador_get_models(base_url: str, api_key: str):
+    url = f"{normalize_base_url(base_url)}models"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+    except requests.RequestException as exc:
+        return None, f"Request failed: {exc}"
+    if response.status_code != 200:
+        return None, f"Blablador error {response.status_code}: {response.text}"
+    try:
+        return response.json(), None
+    except ValueError:
+        return None, "Blablador returned non-JSON response."
+
     
 class Response:
     def __init__(self, content):
@@ -167,6 +206,7 @@ with col2:
 # --- Model Lists ---
 GPT_MODELS = [ "gpt-4o-mini", "gpt-4o", "gpt-4.1"]
 GEMINI_MODELS = [ "gemini-2.5-flash-lite","gemini-2.5-flash", "gemini-2.5-pro"]
+BLABLADOR_MODELS = ["alias-fast", "alias-large", "alias-code", "alias-embeddings"]
 #ALL_MODELS = GPT_MODELS + GEMINI_MODELS
 
 # New prompts for the swarm
@@ -200,6 +240,13 @@ def init_session():
         st.session_state.saved_api_key = None
     if "saved_api_key_gai" not in st.session_state:
         st.session_state.saved_api_key_gai = None
+    if "saved_api_key_blablador" not in st.session_state:
+        st.session_state.saved_api_key_blablador = get_local_secret("BLABLADOR_API_KEY")
+    if "blablador_base_url" not in st.session_state:
+        st.session_state.blablador_base_url = (
+            get_local_secret("BLABLADOR_BASE_URL")
+            or "https://api.helmholtz-blablador.fz-juelich.de/v1/"
+        )
     if "agents" not in st.session_state:
         st.session_state.agents = None
 
@@ -457,6 +504,73 @@ def get_agents():
             "refine_agent_gai": None,
         }
         return st.session_state.agents
+    elif st.session_state.selected_model in BLABLADOR_MODELS:
+        blablador_base_url = normalize_base_url(st.session_state.blablador_base_url)
+        initial_config = LLMConfig(
+            api_type="openai",
+            model=st.session_state.selected_model,
+            temperature=0.2,
+            api_key=st.session_state.get("saved_api_key_blablador"),
+            base_url=blablador_base_url,
+        )
+        review_config = LLMConfig(
+            api_type="openai",
+            model=st.session_state.selected_model,
+            temperature=0.5,
+            api_key=st.session_state.get("saved_api_key_blablador"),
+            base_url=blablador_base_url,
+        )
+        class_agent = ConversableAgent(
+            name="class_agent",
+            system_message=Initial_Agent_Instructions,
+            description="Initial agent that answers user prompt. Expert in the CLASS code",
+            human_input_mode="NEVER",
+            llm_config=initial_config
+        )
+        review_agent = ConversableAgent(
+            name="review_agent",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Review_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Reviews the AI answer to user prompt",
+            llm_config=review_config,
+            functions=review_reply,
+        )
+        refine_agent = ConversableAgent(
+            name="improve_reply_agent",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Refine_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Improves the AI reply by taking into account the feedback",
+            llm_config=initial_config,
+        )
+        refine_agent_final = ConversableAgent(
+            name="improve_reply_agent_final",
+            update_agent_state_before_reply=[
+                UpdateSystemMessage(Refine_Agent_Instructions),
+            ],
+            human_input_mode="NEVER",
+            description="Improves the AI reply by taking into account the feedback",
+            llm_config=initial_config,
+        )
+        class_agent.handoffs.set_after_work(AgentTarget(review_agent))
+        review_agent.handoffs.set_after_work(AgentTarget(refine_agent))
+        refine_agent.handoffs.set_after_work(AgentTarget(review_agent))
+        refine_agent_final.handoffs.set_after_work(TerminateTarget())
+        refine_agent.handoffs.add_llm_conditions([
+            OnCondition(target=AgentTarget(refine_agent_final), condition=StringLLMCondition(prompt="The reply to the latest user question has been reviewd and received a favarable rating (equivalent to 7 or higher)"))
+        ])
+        st.session_state.agents = {
+            "class_agent": class_agent,
+            "review_agent": review_agent,
+            "refine_agent": refine_agent,
+            "refine_agent_final": refine_agent_final,
+            "initial_config": initial_config,
+            "refine_agent_gai": None,
+        }
+        return st.session_state.agents
     elif st.session_state.selected_model in GEMINI_MODELS:
         initial_config_gai = LLMConfig(
             api_type="google",
@@ -552,7 +666,13 @@ def call_code():
         max_iterations = 3  # Maximum number of iterations to prevent infinite loops
         current_iteration = 0
         
+        attempted_fixes = False
+        auto_fix_available = bool(agents) and st.session_state.selected_model in (GPT_MODELS + GEMINI_MODELS + BLABLADOR_MODELS)
         while has_errors and current_iteration < max_iterations:
+            if not auto_fix_available:
+                st.warning("Automatic error-fixing is not available for this model. Please edit the code and try again.")
+                break
+            attempted_fixes = True
             current_iteration += 1
             st.error(f"Previous error: {execution_output}")  # Show the actual error message
             st.info(f"🔧 Fixing errors (attempt {current_iteration}/{max_iterations})...")
@@ -709,7 +829,10 @@ def call_code():
             has_errors = any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:", "Error in Class"])
 
         if has_errors:
-            st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
+            if attempted_fixes:
+                st.markdown("> ⚠️ **Note**: Some errors could not be fixed after multiple attempts. You can request changes by describing them in the chat.")
+            else:
+                st.markdown("> ⚠️ **Note**: Auto-fix is unavailable for this model. Please correct the code and try again.")
             st.markdown(f"> ❌ Last execution message:\n{execution_output}")
 
             # Display the final code that was successfully executed
@@ -749,6 +872,9 @@ def call_code():
 
 def call_ai(context, user_input):
     agents = get_agents()
+    if st.session_state.selected_model in BLABLADOR_MODELS:
+        if st.session_state.mode_is_fast != "Fast Mode":
+            return Response(content="Blablador models are only available in Fast Mode.")
     if st.session_state.mode_is_fast == "Fast Mode":
         messages = build_messages(context, user_input, Initial_Agent_Instructions)
         response = []
@@ -868,6 +994,26 @@ with st.sidebar:
         st.session_state.saved_api_key_gai = api_key_gai
     #    st.success("API key(s) loaded into session.")
     #    st.rerun()
+
+    st.markdown('<div class="sidebar-title">Blablador (Helmholtz AI)</div>', unsafe_allow_html=True)
+    if st.session_state.saved_api_key_blablador:
+        st.caption("Blablador API key loaded from secrets.toml.")
+    else:
+        st.warning("No BLABLADOR_API_KEY found in secrets.toml.")
+    st.caption(f"Blablador Base URL: {st.session_state.blablador_base_url}")
+
+    if st.button("Test Blablador /models"):
+        if not st.session_state.saved_api_key_blablador:
+            st.error("Please enter your Blablador API key first.")
+        else:
+            models, error = blablador_get_models(
+                st.session_state.blablador_base_url,
+                st.session_state.saved_api_key_blablador
+            )
+            if error:
+                st.error(error)
+            else:
+                st.json(models)
 
     
 
@@ -989,6 +1135,8 @@ with st.sidebar:
         OPTIONS += GEMINI_MODELS
     if api_key:
         OPTIONS += GPT_MODELS
+    if st.session_state.saved_api_key_blablador:
+        OPTIONS += BLABLADOR_MODELS
 
     if OPTIONS:
         st.markdown("---")  # Add a separator for better visual organization
@@ -1018,6 +1166,8 @@ with st.sidebar:
         if api_key_gai:
             st.session_state.llm_initialized = True        
     elif st.session_state.selected_model in GPT_MODELS and api_key:
+        st.session_state.llm_initialized = True
+    elif st.session_state.selected_model in BLABLADOR_MODELS and st.session_state.saved_api_key_blablador:
         st.session_state.llm_initialized = True
         
     if OPTIONS:
@@ -1360,7 +1510,16 @@ if user_input:
        
         if st.session_state.mode_is_fast == "Fast Mode":
 
-            if st.session_state.selected_model in GEMINI_MODELS:
+            if st.session_state.selected_model in BLABLADOR_MODELS:
+                st.session_state.llm = ChatOpenAI(
+                        model_name=st.session_state.selected_model,
+                        streaming=True,
+                        callbacks=[stream_handler],
+                        openai_api_key=st.session_state.saved_api_key_blablador,
+                        base_url=normalize_base_url(st.session_state.blablador_base_url),
+                        temperature=0.2
+                )
+            elif st.session_state.selected_model in GEMINI_MODELS:
 
 
                 st.session_state.llm = ChatGoogleGenerativeAI(
@@ -1423,7 +1582,15 @@ if "llm_initialized" in st.session_state and st.session_state.llm_initialized an
                 temperature=1.0,
                 convert_system_message_to_human=True  # Important for compatibility
             )
-        
+        elif st.session_state.selected_model in BLABLADOR_MODELS:
+            streaming_llm = ChatOpenAI(
+                model_name=st.session_state.selected_model,
+                streaming=True,
+                callbacks=[welcome_stream_handler],
+                openai_api_key=st.session_state.saved_api_key_blablador,
+                base_url=normalize_base_url(st.session_state.blablador_base_url),
+                temperature=1.0
+            )
         else:
         # Initialize streaming LLM
             streaming_llm = ChatOpenAI(

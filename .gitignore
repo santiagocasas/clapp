@@ -1,3 +1,6 @@
+## Secrets
+secrets.toml
+
 # Notebook outputs
 notebooks/*.pdf
 
