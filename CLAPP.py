@@ -20,7 +20,7 @@ except ModuleNotFoundError:
 
 
 from cryptography.fernet import Fernet
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
@@ -56,6 +56,8 @@ import matplotlib.pyplot as plt
 import io
 from PIL import Image
 import re
+import ast
+import difflib
 import subprocess
 import sys
 from typing import Tuple
@@ -284,6 +286,208 @@ def format_memory_messages(memory_messages):
 def retrieve_context(question):
     docs = st.session_state.vector_store.similarity_search(question, k=4)
     return "\n\n".join([doc.page_content for doc in docs])
+
+_CLASSY_VALID_PARAMS = None
+_CLASSY_VERBOSE_MODULES = {
+    "input",
+    "background",
+    "thermodynamics",
+    "perturbations",
+    "transfer",
+    "primordial",
+    "harmonic",
+    "fourier",
+    "lensing",
+    "distortions",
+    "output",
+}
+
+def get_classy_valid_params():
+    global _CLASSY_VALID_PARAMS
+    if _CLASSY_VALID_PARAMS is not None:
+        return _CLASSY_VALID_PARAMS
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "class-data")
+    valid = set()
+    if not os.path.isdir(data_dir):
+        _CLASSY_VALID_PARAMS = valid
+        return valid
+    for filename in os.listdir(data_dir):
+        file_path = os.path.join(data_dir, filename)
+        if filename.endswith(".ini"):
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.read().splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith(("#", ";", "[")):
+                    continue
+                if "=" in stripped:
+                    key = stripped.split("=", 1)[0].strip()
+                    if key and re.fullmatch(r"[A-Za-z0-9_./-]+", key):
+                        valid.add(key)
+            continue
+        if not filename.endswith((".txt", ".md", ".rst")):
+            continue
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            for token in re.findall(r"``([^`]+)``", line):
+                token = token.strip().strip("'\"")
+                if not token:
+                    continue
+                if re.search(r"\s", token):
+                    continue
+                if not re.fullmatch(r"[A-Za-z0-9_./-]+", token):
+                    continue
+                valid.add(token)
+    _CLASSY_VALID_PARAMS = valid
+    return valid
+
+def _extract_literal_dict_keys(node: ast.Dict):
+    keys = set()
+    for key in node.keys:
+        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+            keys.add(key.value)
+    return keys
+
+def extract_class_params_from_code(code: str):
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return set()
+    dict_assigns = {}
+    found = set()
+
+    class ParamVisitor(ast.NodeVisitor):
+        def visit_Assign(self, node):
+            if isinstance(node.value, ast.Dict):
+                keys = _extract_literal_dict_keys(node.value)
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        dict_assigns[target.id] = keys
+            self.generic_visit(node)
+
+        def visit_AnnAssign(self, node):
+            if isinstance(node.value, ast.Dict) and isinstance(node.target, ast.Name):
+                dict_assigns[node.target.id] = _extract_literal_dict_keys(node.value)
+            self.generic_visit(node)
+
+        def visit_Call(self, node):
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "set":
+                if node.args:
+                    arg = node.args[0]
+                    if isinstance(arg, ast.Dict):
+                        found.update(_extract_literal_dict_keys(arg))
+                    elif isinstance(arg, ast.Name) and arg.id in dict_assigns:
+                        found.update(dict_assigns[arg.id])
+                for kw in node.keywords:
+                    if kw.arg:
+                        found.add(kw.arg)
+            self.generic_visit(node)
+
+    ParamVisitor().visit(tree)
+    return found
+
+def validate_class_params_in_code(code: str):
+    used_params = extract_class_params_from_code(code)
+    if not used_params:
+        return [], {}
+    valid_params = get_classy_valid_params()
+    invalid = []
+    suggestions = {}
+    for param in sorted(used_params):
+        if param in valid_params:
+            continue
+        if param.endswith("_verbose"):
+            prefix = param[:-8]
+            if prefix in _CLASSY_VERBOSE_MODULES:
+                continue
+        invalid.append(param)
+        suggestions[param] = difflib.get_close_matches(param, valid_params, n=3, cutoff=0.6)
+    return invalid, suggestions
+
+def auto_correct_class_params(code: str, suggestions: dict):
+    corrected = code
+    replacements = []
+    for param, candidates in suggestions.items():
+        if not candidates:
+            continue
+        suggestion = candidates[0]
+        pattern = r"(['\"])%s\\1" % re.escape(param)
+        corrected, count = re.subn(pattern, r"\\1%s\\1" % suggestion, corrected)
+        if count:
+            replacements.append((param, suggestion))
+    return corrected, replacements
+
+def extract_first_code_block(message: str):
+    match = re.search(r"```(?:python)?\n(.*?)```", message, re.DOTALL)
+    if match:
+        return match.group(1).strip(), True
+    return message.strip(), False
+
+def extract_strict_code_block(message: str):
+    blocks = re.findall(r"```(?:python)?\n(.*?)```", message, re.DOTALL)
+    if len(blocks) != 1:
+        return None, False, "Expected a single python code block."
+    outside = re.sub(r"```(?:python)?\n.*?```", "", message, flags=re.DOTALL)
+    if outside.strip():
+        return blocks[0].strip(), False, "Extra text outside the code block."
+    return blocks[0].strip(), True, None
+
+def format_code_block(code: str):
+    return f"```python\n{code}\n```"
+
+def get_autofix_llm():
+    model = st.session_state.selected_model
+    if model in BLABLADOR_MODELS:
+        api_key = st.session_state.get("saved_api_key_blablador")
+        if not api_key:
+            return None, "Missing Blablador API key."
+        llm = ChatOpenAI(
+            model_name=model,
+            openai_api_key=api_key,
+            base_url=normalize_base_url(st.session_state.blablador_base_url),
+            temperature=0.2,
+        )
+        return llm, None
+    if model in GEMINI_MODELS:
+        api_key = st.session_state.get("saved_api_key_gai")
+        if not api_key:
+            return None, "Missing Gemini API key."
+        llm = ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=api_key,
+            temperature=0.2,
+            convert_system_message_to_human=True,
+        )
+        return llm, None
+    if model in GPT_MODELS:
+        api_key = st.session_state.get("saved_api_key")
+        if not api_key:
+            return None, "Missing OpenAI API key."
+        llm = ChatOpenAI(
+            model_name=model,
+            openai_api_key=api_key,
+            temperature=0.2,
+        )
+        return llm, None
+    return None, "Unsupported model for auto-fix."
+
+def auto_fix_with_direct_llm(review_message: str):
+    llm, error = get_autofix_llm()
+    if error:
+        return None, error
+    try:
+        response = llm.invoke([HumanMessage(content=review_message)])
+        content = getattr(response, "content", None)
+        return content if content else str(response), None
+    except Exception as exc:
+        return None, str(exc)
 
 
 # Set up code execution environment
@@ -638,6 +842,9 @@ def call_code():
             break
     
     if last_assistant_message:
+        code_to_execute, has_code_block = extract_first_code_block(last_assistant_message)
+        if not code_to_execute:
+            return Response(content="No code found to execute in the previous messages.")
         st.markdown("Executing code...")
         st.info("🚀 Executing cleaned code...")
         #chat_result = code_executor.initiate_chat(
@@ -647,7 +854,30 @@ def call_code():
         #    summary_method="last_msg"
         #)
         #execution_output = chat_result.summary
-        execution_output, plot_path = executor.execute_code(last_assistant_message)
+        invalid_params, suggestions = validate_class_params_in_code(code_to_execute)
+        if invalid_params:
+            code_to_execute, replacements = auto_correct_class_params(code_to_execute, suggestions)
+            if replacements:
+                st.info(
+                    "Auto-corrected parameters: "
+                    + ", ".join([f"{old} -> {new}" for old, new in replacements])
+                )
+            invalid_params, suggestions = validate_class_params_in_code(code_to_execute)
+        if invalid_params:
+            suggestions_text = ""
+            for param in invalid_params:
+                if suggestions.get(param):
+                    suggestions_text += f"\n  - {param}: {', '.join(suggestions[param])}"
+            execution_output = (
+                "STDOUT:\n"
+                "Error: Invalid CLASS input parameter(s) detected before execution:\n"
+                f"{', '.join(invalid_params)}\n"
+            )
+            if suggestions_text:
+                execution_output += f"\nSuggestions:{suggestions_text}\n"
+            plot_path = ""
+        else:
+            execution_output, plot_path = executor.execute_code(code_to_execute)
         st.subheader("Execution Output")
         st.text(execution_output)  # now contains both STDOUT and STDERR
         
@@ -721,17 +951,12 @@ def call_code():
             #if st.session_state.debug:
             #    st.session_state.debug_messages.append(("Formatted Corrected Answer", formatted_answer))
 
-            # get context on error message
-            context = retrieve_context(execution_output)
-
             review_message = f"""
-            Context:\n{context}\n\nQuestion:
-
             Previous answer had errors during execution:
             {execution_output}
 
-            Please modify the code to fix those errors. IMPORTANT: Preserve all code blocks exactly as they are, only fix actual errors:
-            {last_assistant_message}
+            Please fix the code to resolve the errors. Return ONLY one corrected python code block, no explanations or extra text.
+            {format_code_block(code_to_execute)}
             """
 
 
@@ -759,11 +984,22 @@ def call_code():
                     context_variables=shared_context,
                 )
             
-            result, context_variables, last_agent = initiate_group_chat(
-                pattern=pattern,
-                messages=review_message,
-                max_rounds=2,
-            )
+            formatted_answer = None
+            try:
+                result, context_variables, last_agent = initiate_group_chat(
+                    pattern=pattern,
+                    messages=review_message,
+                    max_rounds=2,
+                )
+                formatted_answer = result.chat_history[-1]["content"]
+            except Exception as exc:
+                # Fall back to a direct LLM call if group chat fails.
+                if st.session_state.debug:
+                    st.session_state.debug_messages.append(("Auto-fix group chat error", str(exc)))
+                formatted_answer, autofix_error = auto_fix_with_direct_llm(review_message)
+                if autofix_error:
+                    st.error(f"Auto-fix failed: {autofix_error}")
+                    break
 
             #if st.session_state.selected_model in GEMINI_MODELS:
             #    chat_result = review_agent_gai.initiate_chat(
@@ -780,21 +1016,66 @@ def call_code():
             #        summary_method="last_msg"
             #    )
 
-            formatted_answer = result.chat_history[-1]["content"]
             if st.session_state.debug:
                 st.session_state.debug_messages.append(("Error Review Feedback", formatted_answer))
+
+            if not formatted_answer:
+                st.error("Auto-fix did not return a response.")
+                break
+
+            code_to_execute, is_strict, strict_error = extract_strict_code_block(formatted_answer)
+            if not is_strict:
+                if st.session_state.debug and strict_error:
+                    st.session_state.debug_messages.append(("Auto-fix format issue", strict_error))
+                strict_message = f"""
+                Return ONLY one python code block, with no extra text or explanations.
+                Do not change the code; just output the corrected code block from this response:
+                {formatted_answer}
+                """
+                reformatted_answer, reform_error = auto_fix_with_direct_llm(strict_message)
+                if reform_error:
+                    st.error(f"Auto-fix formatting failed: {reform_error}")
+                    break
+                formatted_answer = reformatted_answer
+                code_to_execute, is_strict, strict_error = extract_strict_code_block(formatted_answer)
+                if not is_strict:
+                    st.error("Auto-fix response was not code-only.")
+                    break
 
 
             # Execute the corrected code
             st.info("🚀 Executing corrected code...")
-            #chat_result = code_executor.initiate_chat(
-            #    recipient=code_executor,
-            #    message=f"Please execute this corrected code:\n{formatted_answer}",
-            #    max_turns=1,
-            #    summary_method="last_msg"
-            #)
-            #execution_output = chat_result.summary
-            execution_output, plot_path = executor.execute_code(formatted_answer)
+            invalid_params, suggestions = validate_class_params_in_code(code_to_execute)
+            if invalid_params:
+                code_to_execute, replacements = auto_correct_class_params(code_to_execute, suggestions)
+                if replacements:
+                    st.info(
+                        "Auto-corrected parameters: "
+                        + ", ".join([f"{old} -> {new}" for old, new in replacements])
+                    )
+                invalid_params, suggestions = validate_class_params_in_code(code_to_execute)
+            if invalid_params:
+                suggestions_text = ""
+                for param in invalid_params:
+                    if suggestions.get(param):
+                        suggestions_text += f"\n  - {param}: {', '.join(suggestions[param])}"
+                execution_output = (
+                    "STDOUT:\n"
+                    "Error: Invalid CLASS input parameter(s) detected before execution:\n"
+                    f"{', '.join(invalid_params)}\n"
+                )
+                if suggestions_text:
+                    execution_output += f"\nSuggestions:{suggestions_text}\n"
+                plot_path = ""
+            else:
+                #chat_result = code_executor.initiate_chat(
+                #    recipient=code_executor,
+                #    message=f"Please execute this corrected code:\n{formatted_answer}",
+                #    max_turns=1,
+                #    summary_method="last_msg"
+                #)
+                #execution_output = chat_result.summary
+                execution_output, plot_path = executor.execute_code(code_to_execute)
             st.subheader("Execution Output")
             st.text(execution_output)  # now contains both STDOUT and STDERR
             
@@ -837,8 +1118,8 @@ def call_code():
 
             # Display the final code that was successfully executed
             with st.expander("View Failed Code", expanded=False):
-                st.markdown(last_assistant_message)
-            response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
+                st.markdown(format_code_block(code_to_execute))
+            response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n{format_code_block(code_to_execute)}\n")
         else:
             # Check for common error indicators in the output
             if any(error_indicator in execution_output for error_indicator in ["Traceback", "Error:", "Exception:", "TypeError:", "ValueError:", "NameError:", "SyntaxError:"]):
@@ -847,18 +1128,18 @@ def call_code():
                 
                     # Display the final code that was successfully executed
                 with st.expander("View Failed Code", expanded=False):
-                    st.markdown(last_assistant_message)
-                response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n")
+                    st.markdown(format_code_block(code_to_execute))
+                response = Response(content=f"Execution completed with errors:\n{execution_output}\n\nThe following code was executed:\n{format_code_block(code_to_execute)}\n")
 
             else:
                 st.markdown(f"> ✅ Code executed successfully. Last execution message:\n{execution_output}")
                 
                 # Display the final code that was successfully executed
                 with st.expander("View Successfully Executed Code", expanded=False):
-                    st.markdown(last_assistant_message)
+                    st.markdown(format_code_block(code_to_execute))
                     
                 # Create a response message that includes the plot path
-                response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n```python\n{last_assistant_message}\n```"
+                response_text = f"Execution completed successfully:\n{execution_output}\n\nThe following code was executed:\n{format_code_block(code_to_execute)}"
                 
                 # Add plot path marker for rendering in the conversation
                 if os.path.exists(plot_path):
@@ -1002,7 +1283,7 @@ with st.sidebar:
         st.warning("No BLABLADOR_API_KEY found in secrets.toml.")
     st.caption(f"Blablador Base URL: {st.session_state.blablador_base_url}")
 
-    if st.button("Test Blablador /models"):
+    if st.button("Test Blablador models"):
         if not st.session_state.saved_api_key_blablador:
             st.error("Please enter your Blablador API key first.")
         else:
@@ -1173,11 +1454,12 @@ with st.sidebar:
     if OPTIONS:
         st.write("### Response Mode")
         mode = st.radio(
-            "",
+            "Response Mode",
             options=["Fast Mode", "Deep Thought Mode"],
             index=0 if st.session_state.get("mode_is_fast", "Fast Mode") == "Fast Mode" else 1,
             horizontal=True,
-            key="mode_is_fast"
+            key="mode_is_fast",
+            label_visibility="collapsed",
         )
 
         st.markdown("<div style='height: 0.5em'></div>", unsafe_allow_html=True)
@@ -1193,13 +1475,36 @@ with st.sidebar:
     st.markdown("---")  # Add a separator for better visual organization
 
     st.markdown('<div class="sidebar-title">🧩 RAG data & Embeddings</div>', unsafe_allow_html=True)
-    # --- Helper for RAG Embedding Generation ---
-    def generate_and_save_embedding(index_path):
-        from langchain_huggingface import HuggingFaceEmbeddings
-        embeddings = HuggingFaceEmbeddings(
+    if "embedding_provider" not in st.session_state:
+        st.session_state.embedding_provider = "HuggingFace (local)"
+
+    embedding_provider_options = ["HuggingFace (local)"]
+    if st.session_state.saved_api_key_blablador:
+        embedding_provider_options.append("Blablador (alias-embeddings)")
+    if st.session_state.embedding_provider not in embedding_provider_options:
+        st.session_state.embedding_provider = embedding_provider_options[0]
+
+    st.session_state.embedding_provider = st.selectbox(
+        "Embedding provider",
+        options=embedding_provider_options,
+        index=embedding_provider_options.index(st.session_state.embedding_provider),
+    )
+
+    def build_embeddings():
+        if st.session_state.embedding_provider == "Blablador (alias-embeddings)":
+            return OpenAIEmbeddings(
+                model="alias-embeddings",
+                openai_api_key=st.session_state.saved_api_key_blablador,
+                base_url=normalize_base_url(st.session_state.blablador_base_url),
+            )
+        return HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
             model_kwargs={"device": "cpu"}
         )
+
+    # --- Helper for RAG Embedding Generation ---
+    def generate_and_save_embedding(index_path):
+        embeddings = build_embeddings()
         all_docs = get_all_docs_from_class_data()
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         def sanitize(documents):
@@ -1216,7 +1521,11 @@ with st.sidebar:
         st.session_state.vector_store = None
 
     embedding_status = st.empty()
-    index_path = "my_faiss_index"
+    index_path = (
+        "my_faiss_index_blablador"
+        if st.session_state.embedding_provider == "Blablador (alias-embeddings)"
+        else "my_faiss_index"
+    )
     index_file = os.path.join(index_path, "index.faiss")
     index_exists = os.path.exists(index_file)
 
@@ -1230,11 +1539,7 @@ with st.sidebar:
     elif index_exists:
         st.markdown("🗂️ Embedding file found on disk, but not loaded. Please load the embedding to use the agents!")
         with st.spinner("Loading embeddings..."):
-            from langchain_huggingface import HuggingFaceEmbeddings
-            embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={"device": "cpu"}
-            )
+            embeddings = build_embeddings()
             st.session_state.vector_store = FAISS.load_local(
                 folder_path=index_path,
                 embeddings=embeddings,
