@@ -6,7 +6,8 @@ import tempfile
 import requests
 import streamlit as st
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.chat_message_histories import ChatMessageHistory
+
+from clapp.langchain_compat import ChatMessageHistory
 
 from clapp.config import (
     BLABLADOR_MODELS,

@@ -25,7 +25,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.chat_message_histories import ChatMessageHistory
+from clapp.langchain_compat import ChatMessageHistory
 from langchain_core.documents import Document
 from autogen.agentchat.group import OnCondition, StringLLMCondition
 

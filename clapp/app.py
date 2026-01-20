@@ -6,7 +6,8 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 import streamlit as st
-from langchain_community.chat_message_histories import ChatMessageHistory
+
+from clapp.langchain_compat import ChatMessageHistory
 
 from clapp.config import (
     DEFAULT_BLABLADOR_BASE_URL,
