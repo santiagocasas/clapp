@@ -31,15 +31,14 @@ CLAPP is a Streamlit application that provides an AI pair programming assistant 
 ## Features
 
 * **Conversational AI:** Interact with an AI assistant knowledgeable about [CLASS](https://github.com/lesgourg/class_public) and cosmology.
-* **CLASS Integration:** Built-in tools to install, test, and use the [CLASS](https://github.com/lesgourg/class_public) cosmological code.
+* **CLASS Integration:** Built-in tools to test and use the [CLASS](https://github.com/lesgourg/class_public) cosmological code.
 * **Code Execution:** Executes Python code snippets in real-time, with automatic error detection and correction.
 * **Plotting Support:** Generates and displays cosmological plots from [CLASS](https://github.com/lesgourg/class_public) outputs.
 * **RAG Integration:** Retrieves relevant information from [CLASS](https://github.com/lesgourg/class_public) documentation and code (`./class-data/`) to answer questions accurately.
 * **Multiple Response Modes:** 
   * **Fast Mode:** Quick responses with good quality (recommended for most uses)
   * **Swarm Mode:** Multi-agent refined responses for more complex questions (takes longer)
-* **Secure User Management:** Username-based API key storage allows multiple users to securely save encrypted API keys.
-* **Real-time Feedback:** Streams installation and execution progress in real-time.
+* **Real-time Feedback:** Streams execution progress in real-time.
 * **Model Selection:** Choose between different OpenAI models (GPT-4o, GPT-4o-mini).
 
 ## Setup and Installation
@@ -66,15 +65,13 @@ This project uses conda/mamba for environment management, which is compatible wi
    conda activate clapp
    ```
 
-4. **API Key:**
-   * You will need an OpenAI API or Gemini key.
-   * The application allows you to enter a username, API key, and password to encrypt and store it locally.
-   * Keys are saved as `{username}_encrypted_api_key` to allow multiple users.
+4. **API Keys:**
+   * Create `.streamlit/secrets.toml` with your keys.
+   * Supported entries: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `BLABLADOR_API_KEY`, `BLABLADOR_BASE_URL`.
    * Get your free Gemini key from https://aistudio.google.com/app/apikey
 
 5. **CLASS Installation:**
-   * CLAPP includes a built-in CLASS installation button that will install CLASS from source.
-   * Alternatively, you can check if CLASS is already installed using the provided tool.
+   * Install CLASS with `pip install classy` and verify it using the built-in test tool.
 
 6. **CLASS Data:**
    * Ensure the `class-data` directory contains the necessary CLASS documentation, code files (.py, .ini, .txt), and potentially PDF documents for the RAG system.
@@ -95,9 +92,9 @@ This project uses conda/mamba for environment management, which is compatible wi
    ```
 
 3. **Setup process:**
-   * Enter your OpenAI API key and optionally a username and password for encryption.
+   * Add your API keys in `.streamlit/secrets.toml`.
    * Initialize the application by clicking "Initialize with Selected Model".
-   * Check if CLASS is installed or install it using the provided buttons.
+   * Check if CLASS is installed using the provided test button.
    * Start chatting with the assistant about CLASS-related questions or cosmology code.
 
 4. **Code execution:**
@@ -108,13 +105,12 @@ This project uses conda/mamba for environment management, which is compatible wi
 ## Project Structure
 
 * `CLAPP.py`: The main Streamlit application script.
-* `install_classy.sh`: Script to install CLASS from source.
+* `.streamlit/secrets.toml`: Local secrets file for API keys.
 * `test_classy.py`: Script to test CLASS installation and functionality.
 * `environment.yml`: Conda environment specification with all required dependencies.
 * `class-data/`: Directory containing data for the RAG system (CLASS code, docs, etc.).
 * `prompts/`: Directory containing system prompts for the AI agents.
 * `images/`: Contains images used in the app interface, including the CLAPP logo.
-* `{username}_encrypted_api_key`: Stores the encrypted OpenAI API keys for each user.
 
 ## Working with CLASS
 

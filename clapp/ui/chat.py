@@ -89,12 +89,13 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
                     api_key_gai,
                     st.session_state.saved_api_key_blablador,
                     st.session_state.blablador_base_url,
+                    st.session_state.get("blablador_models"),
                     callbacks=[stream_handler],
                     streaming=True,
                     temperature=0.2,
                 )
 
-            if user_input.strip().lower() in {"execute!", "plot!"}:
+            if user_input.strip().lower() in {"execute!", "plot!", "run!"}:
                 response = run_code_request()
             else:
                 response = call_ai(context, user_input, initial_instructions)

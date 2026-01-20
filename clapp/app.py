@@ -1,5 +1,4 @@
 import os
-import os
 import sys
 
 ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -25,7 +24,7 @@ PROMPTS = load_prompts()
 
 
 st.set_page_config(
-    page_title="CLAPP Agent",
+    page_title="CLAPP: CLASS LLM Agent",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="auto",
@@ -103,9 +102,9 @@ def init_session():
     if "last_evidence" not in st.session_state:
         st.session_state.last_evidence = []
     if "saved_api_key" not in st.session_state:
-        st.session_state.saved_api_key = None
+        st.session_state.saved_api_key = get_local_secret("OPENAI_API_KEY")
     if "saved_api_key_gai" not in st.session_state:
-        st.session_state.saved_api_key_gai = None
+        st.session_state.saved_api_key_gai = get_local_secret("GEMINI_API_KEY")
     if "saved_api_key_blablador" not in st.session_state:
         st.session_state.saved_api_key_blablador = get_local_secret("BLABLADOR_API_KEY")
     if "blablador_base_url" not in st.session_state:
@@ -114,6 +113,8 @@ def init_session():
         )
     if "agents" not in st.session_state:
         st.session_state.agents = None
+    if "preflight_enabled" not in st.session_state:
+        st.session_state.preflight_enabled = True
 
 
 init_session()

@@ -42,4 +42,4 @@ BLABLADOR_MODELS = ["alias-fast", "alias-large", "alias-code", "alias-embeddings
 
 DEFAULT_MODEL = "alias-large"
 DEFAULT_BLABLADOR_BASE_URL = "https://api.helmholtz-blablador.fz-juelich.de/v1/"
-DEFAULT_EMBEDDING_PROVIDER = "HuggingFace (local)"
+DEFAULT_EMBEDDING_PROVIDER = "Blablador (alias-embeddings)"

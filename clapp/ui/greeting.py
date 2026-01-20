@@ -23,6 +23,7 @@ def maybe_greet(initial_instructions, api_key, api_key_gai):
                 api_key_gai,
                 st.session_state.saved_api_key_blablador,
                 st.session_state.blablador_base_url,
+                st.session_state.get("blablador_models"),
                 callbacks=[welcome_stream_handler],
                 streaming=True,
                 temperature=1.0,

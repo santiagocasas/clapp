@@ -2,16 +2,38 @@ import os
 import requests
 import tomllib
 
+def load_secrets():
+    base_dir = os.path.dirname(__file__)
+    secrets_paths = [
+        os.path.join(base_dir, ".streamlit", "secrets.toml"),
+        os.path.join(base_dir, "secrets.toml"),
+    ]
+    for secrets_path in secrets_paths:
+        if not os.path.exists(secrets_path):
+            continue
+        try:
+            with open(secrets_path, "rb") as file:
+                secrets = tomllib.load(file)
+            return secrets if isinstance(secrets, dict) else {}
+        except Exception:
+            continue
+    return {}
+
+
 def load_blablador_api_key():
-    secrets_path = os.path.join(os.path.dirname(__file__), "secrets.toml")
-    if not os.path.exists(secrets_path):
-        return None
-    try:
-        with open(secrets_path, "rb") as file:
-            secrets = tomllib.load(file)
-        return secrets.get("BLABLADOR_API_KEY")
-    except Exception:
-        return None
+    api_key = os.getenv("BLABLADOR_API_KEY")
+    if api_key:
+        return api_key
+    secrets = load_secrets()
+    return secrets.get("BLABLADOR_API_KEY")
+
+
+def load_blablador_base_url():
+    base_url = os.getenv("BLABLADOR_BASE_URL")
+    if base_url:
+        return base_url
+    secrets = load_secrets()
+    return secrets.get("BLABLADOR_BASE_URL")
 
 api_key = load_blablador_api_key()
 
@@ -22,7 +44,8 @@ if api_key:
 # Configuration for Blablador API
 config = {
     "api_key": os.getenv("BLABLADOR_API_KEY"),
-    "base_url": "https://api.helmholtz-blablador.fz-juelich.de/v1/",
+    "base_url": load_blablador_base_url()
+    or "https://api.helmholtz-blablador.fz-juelich.de/v1/",
     "model": "alias-fast",
 }
 

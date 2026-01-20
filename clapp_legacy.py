@@ -161,7 +161,7 @@ class StreamHandler(BaseCallbackHandler):
 
 # --- Streamlit Page Config ---
 st.set_page_config(
-    page_title="CLAPP Agent",
+    page_title="CLAPP: CLASS LLM Agent",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="auto"
@@ -1848,7 +1848,7 @@ if user_input:
 
 
         # Check if this is an execution request
-        if user_input.strip().lower() == "execute!" or user_input.strip().lower() == "plot!":
+        if user_input.strip().lower() in {"execute!", "plot!", "run!"}:
             response = call_code()
 
         else:

@@ -17,12 +17,14 @@ def build_llm(
     api_key_gai,
     blablador_api_key,
     blablador_base_url,
+    blablador_models=None,
     callbacks=None,
     streaming=True,
     temperature=0.2,
 ):
     model = selected_model or DEFAULT_MODEL
-    if model in BLABLADOR_MODELS:
+    active_blablador_models = set(blablador_models or BLABLADOR_MODELS)
+    if model in active_blablador_models:
         return ChatOpenAI(
             model_name=model,
             streaming=streaming,

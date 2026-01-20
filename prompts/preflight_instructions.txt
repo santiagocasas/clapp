@@ -1,0 +1,93 @@
+# CLASS Parameter and Output Constraint Rules
+
+1) Matter Power Spectrum (mPk) and Maximum Wavenumber
+- You must specify a maximum wavenumber when requesting matter power outputs.
+- If you include `mPk` in `output`, then `P_k_max_1/Mpc` must be defined.
+- Otherwise the matter power spectrum will be truncated or incomplete.
+- If you don't include `mPk` in `output`, then do not include any parameters (or keys) related to "pk".
+Invalid example:
+  output = mPk
+  # without specifying:
+  P_k_max_1/Mpc
+
+2) Angular Spectrum Multipole Limits (l_max_scalars)
+- If you request high multipoles (e.g., CMB power spectra to high ell),
+  then `l_max_scalars` must be increased beyond the default.
+- Without this, CLASS will truncate the spectra or produce inaccurate results.
+
+Example:
+  l_max_scalars = 5000
+
+3) Neutrino Parameter Dependencies (N_ur, N_ncdm, N_eff)
+- You cannot treat `N_eff` and `N_ur` as independent free inputs without adjusting
+  the corresponding energy density budget.
+- CLASS internally uses `N_ur` for ultra-relativistic species, `N_ncdm` + masses
+  for massive neutrinos. Inconsistent specification will cause invalid output.
+
+4) Background Energy Density Budget
+- The background energy budget must not be over-constrained.
+- If multiple dark energy components are specified simultaneously (e.g.,
+  `Omega_Lambda`, `Omega_fld`, `Omega_scf`), CLASS needs one free component
+  so there is no conflict in total energy density.
+- Over-specifying conflicting densities will cause CLASS to fail.
+
+Invalid example:
+  Omega_Lambda = 0.7
+  Omega_fld = 0.3
+  Omega_scf = 0.0
+  # CLASS cannot balance the total energy.
+
+5) Nonlinear Output Requirements (non_linear)
+- If you request nonlinear corrections (e.g., HALOFIT or HMcode) or nonlinear
+  matter power spectrum, you must have a compatible module enabled.
+- Otherwise CLASS may skip nonlinear computation or produce warnings/invalid output.
+
+Example:
+  output = mPk
+  non_linear = HALOFIT
+
+6) Reionization and Perturbation Outputs
+- When computing CMB anisotropies, reionization parameters such as `tau_reio` or
+  `z_reio` should be defined if reionization effects are relevant.
+- Leaving them unset may lead to default assumptions that do not match your model.
+
+7) Output Flag Combinations
+- The `output` parameter must be a comma-separated list of valid identifiers
+  (e.g., `tCl`, `pCl`, `lCl`, `mPk`).
+- Mixing outputs that depend on modules that are not enabled may cause errors.
+
+Invalid example:
+  output = lensingCl
+  lensing = no
+
+8) Perturbation Mode and Gauge Dependencies
+- CLASS supports different gauges (`synchronous`, `newtonian`) and perturbation
+  types. Some outputs may not be meaningful if the gauge or mode settings are
+  inconsistent with the requested outputs.
+
+Example:
+  gauge = synchronous   # valid
+  gauge = newtonian     # valid
+  # but check that requested observables are supported.
+
+9) Consistency of Cosmological Input Parameters
+- CLASS will error if conflicting cosmological parameters are supplied (e.g.,
+  specifying both `h` and a contradictory `H0`).
+- Use a single source of truth for Hubble normalization.
+
+Example:
+  # choose ONE
+  h = 0.67
+  # or
+  H0 = 67.0
+
+10) Transfer and Spectra Availability
+- Some outputs (transfer functions, growth rates) depend on internal consistency
+  across modules. If background or perturbation modules are disabled, related
+  outputs may not be available.
+
+Notes:
+- The file `explanatory.ini` in the CLASS source contains the full list of
+  available parameters and recommended usage patterns.
+- Always test configurations on a small example to check that no implicit
+  assumptions cause CLASS to abort or silently adjust parameters.
