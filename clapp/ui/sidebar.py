@@ -583,10 +583,38 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
         st.markdown("---")
         st.markdown(
-            '<div class="sidebar-title">🐞 Debug Info and Logs</div>',
+            '<div class="sidebar-title">🔎 Evidence</div>',
             unsafe_allow_html=True,
         )
-        st.session_state.debug = st.checkbox("🔍 Show Debug Info")
+        st.session_state.show_evidence = st.checkbox("🔍 Show Evidence")
+        if st.session_state.show_evidence:
+            evidence = st.session_state.get("last_evidence") or []
+            if evidence:
+                st.caption("Latest answer evidence:")
+                for idx, item in enumerate(evidence, start=1):
+                    source = item.get("source", "unknown")
+                    item_type = item.get("type", "text")
+                    label = f"{idx}. {source}"
+                    with st.expander(label, expanded=False):
+                        st.caption(f"Type: {item_type}")
+                        st.text(item.get("content", ""))
+            else:
+                st.caption("No evidence available yet.")
+            error_evidence = st.session_state.get("last_error_evidence") or []
+            if error_evidence:
+                st.caption("Latest error-fix evidence:")
+                for idx, item in enumerate(error_evidence, start=1):
+                    source = item.get("source", "unknown")
+                    item_type = item.get("type", "text")
+                    label = f"{idx}. {source}"
+                    with st.expander(label, expanded=False):
+                        st.caption(f"Type: {item_type}")
+                        st.text(item.get("content", ""))
+        st.markdown("---")
+        st.markdown(
+            '<div class="sidebar-title">🧰 Session Tools</div>',
+            unsafe_allow_html=True,
+        )
         if st.button("🗑️ Reset Chat"):
             st.session_state.clear()
             st.rerun()

@@ -18,6 +18,46 @@ _CLASSY_VERBOSE_MODULES = {
     "output",
 }
 
+_CLASSY_TOKEN_EXCLUSIONS = {
+    "and",
+    "as",
+    "by",
+    "default",
+    "defaults",
+    "for",
+    "from",
+    "in",
+    "of",
+    "or",
+    "with",
+}
+
+
+def _add_token(valid: set, token: str):
+    token = token.strip().strip("'\"`).,;:()[]{}")
+    if not token:
+        return
+    if token.lower() in _CLASSY_TOKEN_EXCLUSIONS:
+        return
+    if re.fullmatch(r"[A-Za-z0-9_./-]+", token):
+        valid.add(token)
+
+
+def _extract_tokens_from_line(line: str, valid: set):
+    for token in re.findall(r"``([^`]+)``", line):
+        _add_token(valid, token)
+
+    for token in re.findall(r"\b([A-Za-z0-9_./-]+)\s*=", line):
+        _add_token(valid, token)
+
+    bullet_match = re.match(r"\s*[*-]\s*(.+)", line)
+    if bullet_match:
+        bullet = bullet_match.group(1)
+        for part in re.split(r"\s+or\s+", bullet):
+            token_match = re.match(r"[A-Za-z0-9_./-]+", part.strip())
+            if token_match:
+                _add_token(valid, token_match.group(0))
+
 
 def get_classy_valid_params():
     global _CLASSY_VALID_PARAMS
@@ -56,15 +96,7 @@ def get_classy_valid_params():
         except OSError:
             continue
         for line in lines:
-            for token in re.findall(r"``([^`]+)``", line):
-                token = token.strip().strip("'\"")
-                if not token:
-                    continue
-                if re.search(r"\s", token):
-                    continue
-                if not re.fullmatch(r"[A-Za-z0-9_./-]+", token):
-                    continue
-                valid.add(token)
+            _extract_tokens_from_line(line, valid)
     _CLASSY_VALID_PARAMS = valid
     return valid
 

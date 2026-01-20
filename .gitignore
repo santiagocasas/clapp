@@ -177,3 +177,11 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Generated plots
+plots/*.png
+plots/*.jpg
+plots/*.jpeg
+plots/*.gif
+plots/*.svg
+plots/*.py

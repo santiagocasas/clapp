@@ -96,6 +96,12 @@ def init_session():
         st.session_state.greeted = False
     if "debug_messages" not in st.session_state:
         st.session_state.debug_messages = []
+    if "last_error_evidence" not in st.session_state:
+        st.session_state.last_error_evidence = []
+    if "show_evidence" not in st.session_state:
+        st.session_state.show_evidence = False
+    if "last_evidence" not in st.session_state:
+        st.session_state.last_evidence = []
     if "saved_api_key" not in st.session_state:
         st.session_state.saved_api_key = None
     if "saved_api_key_gai" not in st.session_state:
@@ -111,24 +117,6 @@ def init_session():
 
 
 init_session()
-
-
-if st.session_state.debug:
-    with st.sidebar.expander("🛠️ Debug Information", expanded=True):
-        debug_container = st.container()
-        with debug_container:
-            st.markdown("### Debug Messages")
-
-            for title, message in st.session_state.debug_messages:
-                st.markdown(f"### {title}")
-                st.markdown(message)
-                st.markdown("---")
-
-    with st.sidebar.expander("🛠️ Context Used"):
-        if st.session_state.get("last_context"):
-            st.markdown(st.session_state["last_context"])
-        else:
-            st.markdown("No context retrieved yet.")
 
 
 try:

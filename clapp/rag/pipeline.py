@@ -16,6 +16,17 @@ def format_memory_messages(memory_messages):
     return formatted.strip()
 
 
-def retrieve_context(vector_store, question):
-    docs = vector_store.similarity_search(question, k=4)
-    return "\n\n".join([doc.page_content for doc in docs])
+def retrieve_context(vector_store, question, k=4):
+    docs = vector_store.similarity_search(question, k=k)
+    context = "\n\n".join([doc.page_content for doc in docs])
+    evidence = []
+    for doc in docs:
+        metadata = doc.metadata or {}
+        evidence.append(
+            {
+                "source": metadata.get("source", "unknown"),
+                "type": metadata.get("type", "text"),
+                "content": doc.page_content,
+            }
+        )
+    return context, evidence

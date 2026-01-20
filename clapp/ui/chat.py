@@ -1,5 +1,7 @@
 import os
 
+import os
+
 import streamlit as st
 
 from clapp.config import GEMINI_MODELS
@@ -7,6 +9,21 @@ from clapp.llms.providers import build_llm
 from clapp.rag.pipeline import retrieve_context
 from clapp.services.orchestrator import call_ai, run_code_request
 from clapp.ui.streaming import StreamHandler
+
+
+def estimate_token_count(text, model_name):
+    if not text:
+        return 0
+    try:
+        import tiktoken
+
+        try:
+            encoding = tiktoken.encoding_for_model(model_name or "gpt-4")
+        except Exception:
+            encoding = tiktoken.get_encoding("cl100k_base")
+        return len(encoding.encode(text))
+    except Exception:
+        return len(text.split())
 
 
 def render_chat(options, api_key, api_key_gai, initial_instructions):
@@ -55,16 +72,11 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
             st.markdown(user_input)
 
         st.session_state.memory.add_user_message(user_input)
-        context = retrieve_context(st.session_state.vector_store, user_input)
+        context, evidence = retrieve_context(
+            st.session_state.vector_store, user_input
+        )
         st.session_state["last_context"] = context
-
-        try:
-            import tiktoken
-
-            enc = tiktoken.encoding_for_model("gpt-4")
-            st.session_state.last_token_count = len(enc.encode(user_input))
-        except Exception:
-            st.session_state.last_token_count = 0
+        st.session_state["last_evidence"] = evidence
 
         with st.chat_message("assistant"):
             stream_box = st.empty()
@@ -89,6 +101,9 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
                 if st.session_state.mode_is_fast != "Fast Mode":
                     st.markdown(response.content)
 
+            st.session_state.last_token_count = estimate_token_count(
+                response.content, st.session_state.selected_model
+            )
             st.session_state.memory.add_ai_message(response.content)
             st.session_state.messages.append(
                 {"role": "assistant", "content": response.content}

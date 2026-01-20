@@ -2,6 +2,7 @@ import contextlib
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -20,6 +21,7 @@ from clapp.domain.classy.validation import (
     auto_correct_class_params,
     validate_class_params_in_code,
 )
+from clapp.rag.pipeline import retrieve_context
 
 
 def extract_first_code_block(message: str):
@@ -41,6 +43,34 @@ def extract_strict_code_block(message: str):
 
 def format_code_block(code: str):
     return f"```python\n{code}\n```"
+
+
+def summarize_execution_output(output: str, max_lines: int = 60, max_chars: int = 4000):
+    if not output:
+        return ""
+    lines = output.strip().splitlines()
+    traceback_start = None
+    for idx, line in enumerate(lines):
+        if "Traceback (most recent call last)" in line:
+            traceback_start = idx
+    if traceback_start is not None:
+        lines = lines[traceback_start:]
+    if len(lines) > max_lines:
+        lines = lines[-max_lines:]
+    summary = "\n".join(lines)
+    if len(summary) > max_chars:
+        summary = summary[-max_chars:]
+    return summary
+
+
+def get_error_context(error_summary: str, max_chars: int = 3000):
+    vector_store = st.session_state.get("vector_store")
+    if not vector_store or not error_summary:
+        return "", []
+    context, evidence = retrieve_context(vector_store, error_summary)
+    if context and len(context) > max_chars:
+        context = context[:max_chars] + "\n\n[truncated]"
+    return context, evidence
 
 
 class PlotAwareExecutor(LocalCommandLineCodeExecutor):
@@ -91,8 +121,13 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
         temp_script_path = os.path.join(
             self._temp_dir.name, f"temp_script_{timestamp}.py"
         )
+        saved_script_path = os.path.join(self._plots_dir, f"executed_{timestamp}.py")
         with open(temp_script_path, "w", encoding="utf-8") as file:
             file.write(cleaned)
+        try:
+            shutil.copy2(temp_script_path, saved_script_path)
+        except OSError:
+            saved_script_path = None
 
         full_output = ""
         try:
@@ -118,12 +153,13 @@ class PlotAwareExecutor(LocalCommandLineCodeExecutor):
                 full_output += f"STDERR:\n{stderr_text}\n"
 
             if temp_plot_path and os.path.exists(temp_plot_path):
-                import shutil
-
                 shutil.copy2(temp_plot_path, plot_path)
                 if "generated_plots" not in st.session_state:
                     st.session_state.generated_plots = []
                 st.session_state.generated_plots.append(plot_path)
+
+            if saved_script_path:
+                full_output += f"Saved script: {saved_script_path}\n"
 
         except Exception:
             with self._capture_output() as (_out_buf, err_buf):
@@ -233,16 +269,13 @@ def call_code(
                     suggestions_text += (
                         f"\n  - {param}: {', '.join(suggestions[param])}"
                     )
-            execution_output = (
-                "STDOUT:\n"
-                "Error: Invalid CLASS input parameter(s) detected before execution:\n"
-                f"{', '.join(invalid_params)}\n"
+            st.warning(
+                "Invalid CLASS input parameter(s) detected before execution: "
+                f"{', '.join(invalid_params)}"
             )
             if suggestions_text:
-                execution_output += f"\nSuggestions:{suggestions_text}\n"
-            plot_path = ""
-        else:
-            execution_output, plot_path = EXECUTOR.execute_code(code_to_execute)
+                st.info(f"Suggestions:{suggestions_text}")
+        execution_output, plot_path = EXECUTOR.execute_code(code_to_execute)
         st.subheader("Execution Output")
         st.text(execution_output)
 
@@ -282,10 +315,19 @@ def call_code(
             st.error(f"Previous error: {execution_output}")
             st.info(f"Fixing errors (attempt {current_iteration}/{max_iterations})...")
 
+            error_summary = summarize_execution_output(execution_output)
+            doc_context, error_evidence = get_error_context(error_summary)
+            if error_evidence:
+                st.session_state["last_error_evidence"] = error_evidence
+            docs_block = (
+                f"\n\nRelevant documentation:\n{doc_context}\n"
+                if doc_context
+                else ""
+            )
             review_message = f"""
             Previous answer had errors during execution:
-            {execution_output}
-
+            {error_summary or execution_output}
+            {docs_block}
             Please fix the code to resolve the errors. Return ONLY one corrected python code block, no explanations or extra text.
             {format_code_block(code_to_execute)}
             """
@@ -294,7 +336,7 @@ def call_code(
                 data={
                     "user_prompt": "Correct the errors in the code",
                     "last_answer": last_assistant_message,
-                    "feedback": f" Previous answer had errors during execution: {execution_output}",
+                    "feedback": f" Previous answer had errors during execution: {error_summary or execution_output}",
                     "rating": 0,
                     "revisions": 0,
                 }
@@ -392,9 +434,9 @@ def call_code(
                         "Auto-corrected parameters: "
                         + ", ".join([f"{old} -> {new}" for old, new in replacements])
                     )
-                invalid_params, suggestions = validate_class_params_in_code(
-                    code_to_execute
-                )
+            invalid_params, suggestions = validate_class_params_in_code(
+                code_to_execute
+            )
             if invalid_params:
                 suggestions_text = ""
                 for param in invalid_params:
@@ -402,16 +444,13 @@ def call_code(
                         suggestions_text += (
                             f"\n  - {param}: {', '.join(suggestions[param])}"
                         )
-                execution_output = (
-                    "STDOUT:\n"
-                    "Error: Invalid CLASS input parameter(s) detected before execution:\n"
-                    f"{', '.join(invalid_params)}\n"
+                st.warning(
+                    "Invalid CLASS input parameter(s) detected before execution: "
+                    f"{', '.join(invalid_params)}"
                 )
                 if suggestions_text:
-                    execution_output += f"\nSuggestions:{suggestions_text}\n"
-                plot_path = ""
-            else:
-                execution_output, plot_path = EXECUTOR.execute_code(code_to_execute)
+                    st.info(f"Suggestions:{suggestions_text}")
+            execution_output, plot_path = EXECUTOR.execute_code(code_to_execute)
             st.subheader("Execution Output")
             st.text(execution_output)
 
