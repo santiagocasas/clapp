@@ -25,11 +25,16 @@ def load_local_secrets():
         return {}
 
 
-LOCAL_SECRETS = load_local_secrets()
-
-
 def get_local_secret(key: str):
-    return LOCAL_SECRETS.get(key)
+    secrets = load_local_secrets()
+    if secrets:
+        return secrets.get(key)
+    try:
+        import streamlit as st
+
+        return st.secrets.get(key)
+    except Exception:
+        return None
 
 
 def normalize_base_url(base_url: str) -> str:

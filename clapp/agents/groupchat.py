@@ -130,7 +130,8 @@ def get_agents():
             "refine_agent_gai": None,
         }
         return st.session_state.agents
-    if selected_model in BLABLADOR_MODELS:
+    blablador_models = st.session_state.get("blablador_models") or BLABLADOR_MODELS
+    if selected_model in blablador_models:
         blablador_base_url = normalize_base_url(st.session_state.blablador_base_url)
         initial_config = LLMConfig(
             api_type="openai",

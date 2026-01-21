@@ -108,10 +108,15 @@ def init_session():
         st.session_state.saved_api_key_gai = get_local_secret("GEMINI_API_KEY")
     if "saved_api_key_blablador" not in st.session_state:
         st.session_state.saved_api_key_blablador = get_local_secret("BLABLADOR_API_KEY")
+
+    blablador_base_url = (
+        get_local_secret("BLABLADOR_BASE_URL") or DEFAULT_BLABLADOR_BASE_URL
+    )
     if "blablador_base_url" not in st.session_state:
-        st.session_state.blablador_base_url = (
-            get_local_secret("BLABLADOR_BASE_URL") or DEFAULT_BLABLADOR_BASE_URL
-        )
+        st.session_state.blablador_base_url = blablador_base_url
+    elif st.session_state.blablador_base_url != blablador_base_url:
+        st.session_state.blablador_base_url = blablador_base_url
+        st.session_state.vector_store = None
     if "agents" not in st.session_state:
         st.session_state.agents = None
     if "preflight_enabled" not in st.session_state:

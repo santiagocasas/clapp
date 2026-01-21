@@ -141,7 +141,7 @@ def render_sidebar(base_dir: str) -> SidebarState:
             st.session_state.show_extended_blablador_models = False
         st.caption("Extended models may include experimental or offline entries.")
         st.session_state.show_extended_blablador_models = st.checkbox(
-            "Extended Blablador models",
+            "Click here to activate extended Blablador models.",
             value=st.session_state.show_extended_blablador_models,
         )
         if st.session_state.show_extended_blablador_models:

@@ -617,7 +617,8 @@ EXECUTOR = PlotAwareExecutor(timeout=10)
 def get_autofix_llm(
     selected_model, api_key, api_key_gai, blablador_api_key, blablador_base_url
 ):
-    if selected_model in BLABLADOR_MODELS:
+    blablador_models = st.session_state.get("blablador_models") or BLABLADOR_MODELS
+    if selected_model in blablador_models:
         if not blablador_api_key:
             return None, "Missing Blablador API key."
         llm = ChatOpenAI(
@@ -647,6 +648,59 @@ def get_autofix_llm(
         )
         return llm, None
     return None, "Unsupported model for auto-fix."
+
+
+def get_alias_large_second_opinion(
+    error_summary: str,
+    code: str,
+    docs_block: str,
+    removed_params_block: str,
+    preflight_notes_block: str,
+    blablador_api_key: str | None,
+    blablador_base_url: str,
+    selected_model: str | None,
+):
+    blablador_models = st.session_state.get("blablador_models") or BLABLADOR_MODELS
+    if selected_model == "alias-large":
+        return ""
+    if "alias-large" not in blablador_models or not blablador_api_key:
+        return ""
+    try:
+        advisor = build_llm(
+            selected_model="alias-large",
+            api_key=None,
+            api_key_gai=None,
+            blablador_api_key=blablador_api_key,
+            blablador_base_url=blablador_base_url,
+            blablador_models=blablador_models,
+            streaming=False,
+            temperature=0.0,
+        )
+        review_prompt = f"""
+You are a senior Python reviewer. Analyze the error and suggest minimal fixes.
+Return only short bullet points. Do NOT output code.
+
+Error summary:
+{error_summary}
+{docs_block}
+{removed_params_block}
+{preflight_notes_block}
+
+Code:
+```python
+{code}
+```
+""".strip()
+        response = advisor.invoke(
+            [
+                SystemMessage(content="Provide concise fix suggestions."),
+                HumanMessage(content=review_prompt),
+            ]
+        )
+        content = getattr(response, "content", "")
+        return content.strip() if content else ""
+    except Exception:
+        return ""
 
 
 def auto_fix_with_direct_llm(
@@ -802,12 +856,30 @@ def call_code(
                 if doc_context
                 else ""
             )
+            second_opinion = get_alias_large_second_opinion(
+                error_summary=error_summary or execution_output,
+                code=code_to_execute,
+                docs_block=docs_block,
+                removed_params_block=removed_params_block,
+                preflight_notes_block=preflight_notes_block,
+                blablador_api_key=blablador_api_key,
+                blablador_base_url=blablador_base_url,
+                selected_model=selected_model,
+            )
+            second_opinion_block = (
+                f"\n\nSecond opinion (alias-large):\n{second_opinion}\n"
+                if second_opinion
+                else ""
+            )
+            if second_opinion:
+                st.info("Second opinion (alias-large) added to auto-fix prompt.")
             review_message = f"""
             Previous answer had errors during execution:
             {error_summary or execution_output}
             {docs_block}
             {removed_params_block}
             {preflight_notes_block}
+            {second_opinion_block}
             Please fix the code to resolve the errors. Return ONLY one corrected python code block, no explanations or extra text.
             {format_code_block(code_to_execute)}
             """
