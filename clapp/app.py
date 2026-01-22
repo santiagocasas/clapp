@@ -102,12 +102,23 @@ def init_session():
         st.session_state.show_evidence = False
     if "last_evidence" not in st.session_state:
         st.session_state.last_evidence = []
+    local_api_key = get_local_secret("OPENAI_API_KEY")
     if "saved_api_key" not in st.session_state:
-        st.session_state.saved_api_key = get_local_secret("OPENAI_API_KEY")
+        st.session_state.saved_api_key = local_api_key
+    elif local_api_key and not st.session_state.get("saved_api_key"):
+        st.session_state.saved_api_key = local_api_key
+
+    local_api_key_gai = get_local_secret("GEMINI_API_KEY")
     if "saved_api_key_gai" not in st.session_state:
-        st.session_state.saved_api_key_gai = get_local_secret("GEMINI_API_KEY")
+        st.session_state.saved_api_key_gai = local_api_key_gai
+    elif local_api_key_gai and not st.session_state.get("saved_api_key_gai"):
+        st.session_state.saved_api_key_gai = local_api_key_gai
+
+    local_blablador_key = get_local_secret("BLABLADOR_API_KEY")
     if "saved_api_key_blablador" not in st.session_state:
-        st.session_state.saved_api_key_blablador = get_local_secret("BLABLADOR_API_KEY")
+        st.session_state.saved_api_key_blablador = local_blablador_key
+    elif local_blablador_key and not st.session_state.get("saved_api_key_blablador"):
+        st.session_state.saved_api_key_blablador = local_blablador_key
 
     blablador_base_url = (
         get_local_secret("BLABLADOR_BASE_URL") or DEFAULT_BLABLADOR_BASE_URL

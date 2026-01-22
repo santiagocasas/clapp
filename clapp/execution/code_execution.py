@@ -19,7 +19,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-from clapp.config import BLABLADOR_MODELS, GEMINI_MODELS, GPT_MODELS, normalize_base_url
+from clapp.config import (
+    BLABLADOR_MODELS,
+    GEMINI_MODELS,
+    GPT_MODELS,
+    get_openai_base_url,
+    normalize_base_url,
+)
 from clapp.domain.classy.validation import (
     auto_correct_class_params,
     validate_class_params_in_code,
@@ -618,22 +624,12 @@ def get_autofix_llm(
     selected_model, api_key, api_key_gai, blablador_api_key, blablador_base_url
 ):
     blablador_models = st.session_state.get("blablador_models") or BLABLADOR_MODELS
-    if selected_model in blablador_models:
-        if not blablador_api_key:
-            return None, "Missing Blablador API key."
-        llm = ChatOpenAI(
-            model_name=selected_model,
-            openai_api_key=blablador_api_key,
-            base_url=normalize_base_url(blablador_base_url),
-            temperature=0.2,
-        )
-        return llm, None
     if selected_model in GEMINI_MODELS:
         if not api_key_gai:
             return None, "Missing Gemini API key."
         llm = ChatGoogleGenerativeAI(
             model=selected_model,
-            google_api_key=api_key_gai,
+            api_key=api_key_gai,
             temperature=0.2,
             convert_system_message_to_human=True,
         )
@@ -641,9 +637,22 @@ def get_autofix_llm(
     if selected_model in GPT_MODELS:
         if not api_key:
             return None, "Missing OpenAI API key."
+        openai_base_url = get_openai_base_url()
         llm = ChatOpenAI(
-            model_name=selected_model,
-            openai_api_key=api_key,
+            model=selected_model,
+            api_key=api_key,
+            base_url=openai_base_url,
+            temperature=0.2,
+        )
+        return llm, None
+    if blablador_api_key and (
+        selected_model in blablador_models
+        or selected_model not in GEMINI_MODELS + GPT_MODELS
+    ):
+        llm = ChatOpenAI(
+            model=selected_model,
+            api_key=blablador_api_key,
+            base_url=normalize_base_url(blablador_base_url),
             temperature=0.2,
         )
         return llm, None
@@ -676,6 +685,8 @@ def get_alias_large_second_opinion(
             streaming=False,
             temperature=0.0,
         )
+        if not advisor:
+            return ""
         review_prompt = f"""
 You are a senior Python reviewer. Analyze the error and suggest minimal fixes.
 Return only short bullet points. Do NOT output code.
@@ -720,6 +731,8 @@ def auto_fix_with_direct_llm(
     )
     if error:
         return None, error
+    if not llm:
+        return None, "Auto-fix model unavailable."
     try:
         response = llm.invoke([HumanMessage(content=review_message)])
         content = getattr(response, "content", None)
@@ -943,7 +956,9 @@ def call_code(
                 st.error("Auto-fix did not return a response.")
                 break
 
-            code_to_execute, is_strict, strict_error = extract_strict_code_block(
+            formatted_answer = str(formatted_answer)
+
+            updated_code, is_strict, strict_error = extract_strict_code_block(
                 formatted_answer
             )
             if not is_strict:
@@ -964,16 +979,27 @@ def call_code(
                     blablador_api_key,
                     blablador_base_url,
                 )
-                if reform_error:
+                if reform_error or not reformatted_answer:
                     st.error(f"Auto-fix formatting failed: {reform_error}")
                     break
-                formatted_answer = reformatted_answer
-                code_to_execute, is_strict, strict_error = extract_strict_code_block(
+                formatted_answer = str(reformatted_answer)
+                updated_code, is_strict, strict_error = extract_strict_code_block(
                     formatted_answer
                 )
                 if not is_strict:
-                    st.error("Auto-fix response was not code-only.")
-                    break
+                    updated_code, has_code = extract_first_code_block(formatted_answer)
+                    if not has_code:
+                        st.error("Auto-fix response was not code-only.")
+                        break
+                    st.warning(
+                        "Auto-fix response included extra text; extracted the code block."
+                    )
+
+            if not updated_code:
+                st.error("Auto-fix returned no code.")
+                break
+
+            code_to_execute = str(updated_code)
 
             st.info("Executing corrected code...")
             invalid_params, suggestions = validate_class_params_in_code(code_to_execute)
@@ -1040,6 +1066,9 @@ def call_code(
                     "Error in Class",
                 ]
             )
+
+        if code_to_execute is None:
+            code_to_execute = ""
 
         if has_errors:
             if attempted_fixes:

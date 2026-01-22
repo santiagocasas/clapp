@@ -60,15 +60,41 @@ def test_api_key():
     return response.json()
 
 def format_models(models_response):
-    if not isinstance(models_response, dict) or "data" not in models_response:
+    model_ids = extract_model_ids(models_response)
+    if not model_ids:
         return ["(No models found)"]
+    return [f"{index}. {model_id}" for index, model_id in enumerate(model_ids, start=1)]
+
+
+def extract_model_ids(models_response):
+    if not isinstance(models_response, dict):
+        return []
     items = models_response.get("data", [])
-    labels = []
+    model_ids = []
     for item in items:
-        model_id = item.get("id", "unknown-id")
-        owner = item.get("owned_by", "unknown-owner")
-        labels.append(f"- {model_id} (owner: {owner})")
-    return labels or ["(No models found)"]
+        model_id = item.get("id")
+        if model_id:
+            model_ids.append(model_id)
+    return model_ids
+
+
+def choose_model(model_ids):
+    if not model_ids:
+        return config["model"]
+    fallback_model = config["model"] if config["model"] in model_ids else model_ids[0]
+    while True:
+        choice = input(
+            f"Choose a model [1-{len(model_ids)}] (default {fallback_model}): "
+        ).strip()
+        if not choice:
+            return fallback_model
+        if choice.isdigit():
+            selected_index = int(choice)
+            if 1 <= selected_index <= len(model_ids):
+                return model_ids[selected_index - 1]
+        if choice in model_ids:
+            return choice
+        print("Please enter a model number or id from the list.")
 
 def call_blablador_chat(messages):
     if not config["api_key"]:
@@ -96,6 +122,7 @@ def call_blablador_chat(messages):
 
 def run_chat():
     messages = [{"role": "system", "content": "You are a helpful assistant."}]
+    print(f"Using model: {config['model']}")
     print("Type a message. Use 'exit' to quit.")
     while True:
         user_text = input("You: ").strip()
@@ -108,9 +135,15 @@ def run_chat():
         if "error" in result:
             print("Error:", result["error"])
             continue
-        try:
-            assistant_text = result["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
+        assistant_text = None
+        choices = result.get("choices") if isinstance(result, dict) else None
+        if isinstance(choices, list) and choices:
+            choice = choices[0]
+            if isinstance(choice, dict):
+                message = choice.get("message")
+                if isinstance(message, dict):
+                    assistant_text = message.get("content")
+        if not assistant_text:
             print("Error: Unexpected response format:", result)
             continue
         print("Assistant:", assistant_text)
@@ -123,6 +156,13 @@ if __name__ == "__main__":
     print("\nAvailable models:")
     for line in format_models(api_response):
         print(line)
+
+    model_ids = extract_model_ids(api_response)
+    if model_ids:
+        config["model"] = choose_model(model_ids)
+        print(f"Selected model: {config['model']}")
+    else:
+        print(f"No models returned. Using default: {config['model']}")
 
     # Simple chat loop
     run_chat()

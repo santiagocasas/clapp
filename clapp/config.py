@@ -37,6 +37,31 @@ def get_local_secret(key: str):
         return None
 
 
+def get_openai_base_url():
+    base_url = get_local_secret("OPENAI_BASE_URL") or get_local_secret("OPENAI_API_BASE")
+    if base_url:
+        return base_url
+    env_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    if not env_url:
+        return None
+    env_url = env_url.strip()
+    if not env_url:
+        return None
+    lower_url = env_url.lower()
+    if lower_url.startswith(
+        (
+            "http://localhost",
+            "https://localhost",
+            "http://127.0.0.1",
+            "https://127.0.0.1",
+            "http://0.0.0.0",
+            "https://0.0.0.0",
+        )
+    ):
+        return None
+    return env_url
+
+
 def normalize_base_url(base_url: str) -> str:
     return base_url.rstrip("/") + "/"
 

@@ -4,6 +4,7 @@ from clapp.agents.groupchat import build_groupchat_pattern, get_agents, run_grou
 from clapp.config import BLABLADOR_MODELS
 from clapp.execution.code_execution import call_code as run_code
 from clapp.rag.pipeline import build_messages, format_memory_messages
+from clapp.utils.llm_errors import format_llm_error
 
 
 class Response:
@@ -44,8 +45,16 @@ def call_ai(context, user_input, initial_instructions):
             st.session_state.memory.messages,
         )
         response = []
-        for chunk in st.session_state.llm.stream(messages):
-            response.append(chunk.content)
+        try:
+            for chunk in st.session_state.llm.stream(messages):
+                response.append(chunk.content)
+        except Exception as exc:
+            error_message = format_llm_error(exc)
+            if st.session_state.get("debug"):
+                st.session_state.debug_messages.append(
+                    ("Streaming error", str(exc))
+                )
+            return Response(content=error_message)
 
         response = "".join(response)
         return Response(content=response)
@@ -61,17 +70,25 @@ def call_ai(context, user_input, initial_instructions):
     }
     pattern = build_groupchat_pattern(agents, shared_context)
     st.markdown("Generating answer...")
-    result, context_variables, last_agent = run_group_chat(
-        pattern=pattern,
-        messages=(
-            "Context from documents: "
-            f"{context}\n\n"
-            "Conversation history:\n"
-            f"{conversation_history}\n\n"
-            f"User question: {user_input}"
-        ),
-        max_rounds=10,
-    )
+    try:
+        result, context_variables, last_agent = run_group_chat(
+            pattern=pattern,
+            messages=(
+                "Context from documents: "
+                f"{context}\n\n"
+                "Conversation history:\n"
+                f"{conversation_history}\n\n"
+                f"User question: {user_input}"
+            ),
+            max_rounds=10,
+        )
+    except Exception as exc:
+        error_message = format_llm_error(exc)
+        if st.session_state.get("debug"):
+            st.session_state.debug_messages.append(
+                ("Group chat error", str(exc))
+            )
+        return Response(content=error_message)
     formatted_answer = None
     if last_agent == agents.get("refine_agent_final") or last_agent == agents.get(
         "refine_agent_gai"

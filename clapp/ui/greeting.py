@@ -1,9 +1,12 @@
+import concurrent.futures
+
 import streamlit as st
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from clapp.config import GEMINI_MODELS
 from clapp.llms.providers import build_llm
 from clapp.ui.streaming import StreamHandler
+from clapp.utils.llm_errors import format_llm_error
 
 
 def maybe_greet(initial_instructions, api_key, api_key_gai):
@@ -38,7 +41,38 @@ def maybe_greet(initial_instructions, api_key, api_key_gai):
                 ),
             ]
 
-            greeting = streaming_llm.invoke(messages)
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(streaming_llm.invoke, messages)
+                    greeting = future.result(timeout=10)
+            except concurrent.futures.TimeoutError:
+                error_message = (
+                    "Greeting timed out. Please try another model and try again."
+                )
+                st.error(error_message)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": error_message}
+                )
+                st.session_state.memory.add_ai_message(error_message)
+                st.session_state.greeted = True
+                if st.session_state.get("debug"):
+                    st.session_state.debug_messages.append(
+                        ("Greeting timeout", "Timed out after 10s")
+                    )
+                return
+            except Exception as exc:
+                error_message = format_llm_error(exc)
+                st.error(error_message)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": error_message}
+                )
+                st.session_state.memory.add_ai_message(error_message)
+                st.session_state.greeted = True
+                if st.session_state.get("debug"):
+                    st.session_state.debug_messages.append(
+                        ("Greeting error", str(exc))
+                    )
+                return
 
             st.session_state.messages.append(
                 {"role": "assistant", "content": greeting.content}

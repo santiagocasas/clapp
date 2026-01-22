@@ -48,10 +48,11 @@ def retrieve_context(vector_store, question, k=4):
         try:
             import streamlit as st
 
-            st.warning(
-                "Embedding lookup failed. Check BLABLADOR_BASE_URL or switch the embedding provider."
+            st.info(
+                "Embeddings are temporarily unavailable. Continuing without retrieval context."
             )
-            st.caption(str(exc))
+            if st.session_state.get("debug"):
+                st.caption(str(exc))
         except Exception:
             pass
         return "", []

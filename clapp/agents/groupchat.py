@@ -13,7 +13,13 @@ from autogen.agentchat.group import (
 from autogen.agentchat.group import AgentNameTarget, OnCondition, StringLLMCondition
 from langchain_core.messages import HumanMessage
 
-from clapp.config import BLABLADOR_MODELS, GEMINI_MODELS, GPT_MODELS, normalize_base_url
+from clapp.config import (
+    BLABLADOR_MODELS,
+    GEMINI_MODELS,
+    GPT_MODELS,
+    get_openai_base_url,
+    normalize_base_url,
+)
 from clapp.prompts import load_prompts
 
 
@@ -63,17 +69,20 @@ def review_reply(
 def get_agents():
     selected_model = st.session_state.selected_model
     if selected_model in GPT_MODELS:
+        openai_base_url = get_openai_base_url()
         initial_config = LLMConfig(
             api_type="openai",
             model=selected_model,
             temperature=0.2,
             api_key=st.session_state.get("saved_api_key"),
+            base_url=openai_base_url,
         )
         review_config = LLMConfig(
             api_type="openai",
             model=selected_model,
             temperature=0.5,
             api_key=st.session_state.get("saved_api_key"),
+            base_url=openai_base_url,
         )
         class_agent = ConversableAgent(
             name="class_agent",
@@ -131,7 +140,55 @@ def get_agents():
         }
         return st.session_state.agents
     blablador_models = st.session_state.get("blablador_models") or BLABLADOR_MODELS
-    if selected_model in blablador_models:
+    if selected_model in GEMINI_MODELS:
+        initial_config_gai = LLMConfig(
+            api_type="google",
+            model=selected_model,
+            temperature=0.2,
+            api_key=st.session_state.get("saved_api_key_gai"),
+        )
+        review_config_gai = LLMConfig(
+            api_type="google",
+            model=selected_model,
+            temperature=0.5,
+            api_key=st.session_state.get("saved_api_key_gai"),
+        )
+        class_agent_gai = ConversableAgent(
+            name="class_agent",
+            system_message=PROMPTS["initial"],
+            description="Initial agent that answers user prompt. Expert in the CLASS code",
+            human_input_mode="NEVER",
+            llm_config=initial_config_gai,
+        )
+        refine_agent_gai = ConversableAgent(
+            name="improve_reply_agent",
+            update_agent_state_before_reply=[UpdateSystemMessage(PROMPTS["refine"])],
+            human_input_mode="NEVER",
+            description="Improves the AI reply by taking into account the feedback",
+            llm_config=initial_config_gai,
+        )
+        review_agent_gai = ConversableAgent(
+            name="review_agent",
+            update_agent_state_before_reply=[UpdateSystemMessage(PROMPTS["review"])],
+            human_input_mode="NEVER",
+            description="Reviews the AI answer to user prompt",
+            llm_config=review_config_gai,
+        )
+        class_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
+        review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
+        refine_agent_gai.handoffs.set_after_work(TerminateTarget())
+        st.session_state.agents = {
+            "class_agent_gai": class_agent_gai,
+            "review_agent_gai": review_agent_gai,
+            "refine_agent_gai": refine_agent_gai,
+            "initial_config_gai": initial_config_gai,
+            "refine_agent_final": None,
+        }
+        return st.session_state.agents
+    if st.session_state.get("saved_api_key_blablador") and (
+        selected_model in blablador_models
+        or selected_model not in GEMINI_MODELS + GPT_MODELS
+    ):
         blablador_base_url = normalize_base_url(st.session_state.blablador_base_url)
         initial_config = LLMConfig(
             api_type="openai",
@@ -200,51 +257,6 @@ def get_agents():
             "refine_agent_final": refine_agent_final,
             "initial_config": initial_config,
             "refine_agent_gai": None,
-        }
-        return st.session_state.agents
-    if selected_model in GEMINI_MODELS:
-        initial_config_gai = LLMConfig(
-            api_type="google",
-            model=selected_model,
-            temperature=0.2,
-            api_key=st.session_state.get("saved_api_key_gai"),
-        )
-        review_config_gai = LLMConfig(
-            api_type="google",
-            model=selected_model,
-            temperature=0.5,
-            api_key=st.session_state.get("saved_api_key_gai"),
-        )
-        class_agent_gai = ConversableAgent(
-            name="class_agent",
-            system_message=PROMPTS["initial"],
-            description="Initial agent that answers user prompt. Expert in the CLASS code",
-            human_input_mode="NEVER",
-            llm_config=initial_config_gai,
-        )
-        refine_agent_gai = ConversableAgent(
-            name="improve_reply_agent",
-            update_agent_state_before_reply=[UpdateSystemMessage(PROMPTS["refine"])],
-            human_input_mode="NEVER",
-            description="Improves the AI reply by taking into account the feedback",
-            llm_config=initial_config_gai,
-        )
-        review_agent_gai = ConversableAgent(
-            name="review_agent",
-            update_agent_state_before_reply=[UpdateSystemMessage(PROMPTS["review"])],
-            human_input_mode="NEVER",
-            description="Reviews the AI answer to user prompt",
-            llm_config=review_config_gai,
-        )
-        class_agent_gai.handoffs.set_after_work(AgentTarget(review_agent_gai))
-        review_agent_gai.handoffs.set_after_work(AgentTarget(refine_agent_gai))
-        refine_agent_gai.handoffs.set_after_work(TerminateTarget())
-        st.session_state.agents = {
-            "class_agent_gai": class_agent_gai,
-            "review_agent_gai": review_agent_gai,
-            "refine_agent_gai": refine_agent_gai,
-            "initial_config_gai": initial_config_gai,
-            "refine_agent_final": None,
         }
         return st.session_state.agents
     return {}
