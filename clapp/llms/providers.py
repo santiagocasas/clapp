@@ -22,6 +22,7 @@ def build_llm(
     callbacks=None,
     streaming=True,
     temperature=0.2,
+    timeout=None,
 ):
     model = selected_model or DEFAULT_MODEL
     if model in GEMINI_MODELS:
@@ -31,6 +32,7 @@ def build_llm(
             api_key=api_key_gai,
             temperature=temperature,
             convert_system_message_to_human=True,
+            timeout=timeout,
         )
     if model in GPT_MODELS:
         openai_base_url = get_openai_base_url()
@@ -41,6 +43,7 @@ def build_llm(
             api_key=api_key,
             base_url=openai_base_url,
             temperature=temperature,
+            timeout=timeout,
         )
     active_blablador_models = set(blablador_models or BLABLADOR_MODELS)
     if blablador_api_key and (
@@ -53,6 +56,7 @@ def build_llm(
             api_key=blablador_api_key,
             base_url=normalize_base_url(blablador_base_url),
             temperature=temperature,
+            timeout=timeout,
         )
     return ChatOpenAI(
         model=model,
@@ -60,6 +64,7 @@ def build_llm(
         callbacks=callbacks,
         api_key=api_key,
         temperature=temperature,
+        timeout=timeout,
     )
 
 
