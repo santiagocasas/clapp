@@ -34,7 +34,7 @@ CLAPP is a Streamlit application that provides an AI pair programming assistant 
   <img src="images/blablador-ng.svg" alt="Blablador Logo" width="220"/>
 </p>
 
-CLAPP acknowledges the support of the Blablador API and Helmholtz AI.
+CLAPP acknowledges the support of the [Blablador API](https://sdlaml.pages.jsc.fz-juelich.de/ai/guides/blablador_api_access/) and [Helmholtz AI](https://www.helmholtz.ai/). Especially, the help of Alex Strube with the model support!
 
 ## Features
 
