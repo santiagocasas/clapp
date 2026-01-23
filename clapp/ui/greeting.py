@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit as st
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from clapp.config import GEMINI_MODELS
@@ -52,6 +53,7 @@ def maybe_greet(initial_instructions, api_key, api_key_gai):
                 st.session_state.greeted = True
                 if st.session_state.get("debug"):
                     st.session_state.debug_messages.append(("Greeting error", str(exc)))
+                st.rerun()
                 return
 
             st.session_state.messages.append(
@@ -62,3 +64,6 @@ def maybe_greet(initial_instructions, api_key, api_key_gai):
 
             if st.session_state.selected_model in GEMINI_MODELS:
                 st.markdown(greeting.content)
+
+            st.rerun()
+            return

@@ -26,6 +26,21 @@ def estimate_token_count(text, model_name):
         return len(text.split())
 
 
+EXAMPLE_PROMPTS = [
+    "Plot the lensed CMB TT spectrum for a basic LCDM model.",
+    "Run CLASS with Planck-like parameters and summarize key outputs.",
+    "Explain which CLASS files contain matter power spectra.",
+    "Show how to change neutrino mass and re-run CLASS.",
+]
+
+
+def handle_example_prompt():
+    selected = st.session_state.get("example_prompt_pills")
+    if selected:
+        st.session_state["queued_prompt"] = selected
+        st.session_state["example_prompt_pills"] = None
+
+
 def render_chat(options, api_key, api_key_gai, initial_instructions):
     has_any_key = bool(
         api_key or api_key_gai or st.session_state.get("saved_api_key_blablador")
@@ -54,6 +69,9 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
             )
         user_input = None
 
+    if "show_example_prompts" not in st.session_state:
+        st.session_state.show_example_prompts = True
+
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             if "PLOT_PATH:" in message["content"]:
@@ -66,15 +84,34 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
             else:
                 st.markdown(message["content"])
 
+    if st.session_state.get("greeted") and options and st.session_state.vector_store:
+        show_examples = st.toggle(
+            "Show example prompts",
+            key="show_example_prompts",
+        )
+        if show_examples:
+            st.caption("Try one of these example questions:")
+            st.pills(
+                "Example prompts",
+                EXAMPLE_PROMPTS,
+                selection_mode="single",
+                label_visibility="collapsed",
+                key="example_prompt_pills",
+                on_change=handle_example_prompt,
+            )
+
+    if not user_input and options and st.session_state.vector_store:
+        queued_prompt = st.session_state.pop("queued_prompt", None)
+        if queued_prompt:
+            user_input = queued_prompt
+
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
         st.session_state.memory.add_user_message(user_input)
-        context, evidence = retrieve_context(
-            st.session_state.vector_store, user_input
-        )
+        context, evidence = retrieve_context(st.session_state.vector_store, user_input)
         st.session_state["last_context"] = context
         st.session_state["last_evidence"] = evidence
 
