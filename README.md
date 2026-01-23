@@ -28,6 +28,14 @@ CLAPP is a Streamlit application that provides an AI pair programming assistant 
 * With contributions from: Boris Bolliet & Francisco Villaescusa-Navarro
 * inspired by the [CAMELS-Agent-App](https://github.com/franciscovillaescusa/CAMELS_Agents)
 
+## Acknowledgements
+
+<p align="center">
+  <img src="images/blablador-ng.svg" alt="Blablador Logo" width="220"/>
+</p>
+
+CLAPP acknowledges the support of the Blablador API and Helmholtz AI.
+
 ## Features
 
 * **Conversational AI:** Interact with an AI assistant knowledgeable about [CLASS](https://github.com/lesgourg/class_public) and cosmology.
@@ -43,7 +51,7 @@ CLAPP is a Streamlit application that provides an AI pair programming assistant 
 
 ## Setup and Installation
 
-This project uses conda/mamba for environment management, which is compatible with CLASS installation requirements.
+This project uses `requirements.txt` with pip/uv. CLASS (`classy`) does not install reliably with conda.
 
 1. **Clone the repository:**
    ```bash
@@ -51,44 +59,37 @@ This project uses conda/mamba for environment management, which is compatible wi
    cd clapp
    ```
 
-2. **Create a conda environment from the environment.yml file:**
+2. **Create a virtual environment and install dependencies:**
    ```bash
-   # Using conda
-   conda env create -f environment.yml
-   
-   # Or using mamba (faster)
-   mamba env create -f environment.yml
+   uv venv .venv --python 3.11
+   source .venv/bin/activate
+   uv pip install -r requirements.txt
    ```
 
-3. **Activate the environment:**
-   ```bash
-   conda activate clapp
-   ```
-
-4. **API Keys:**
+3. **API Keys:**
    * Create `.streamlit/secrets.toml` with your keys.
    * Supported entries: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `BLABLADOR_API_KEY`, `BLABLADOR_BASE_URL`.
    * Get your free Gemini key from https://aistudio.google.com/app/apikey
 
-5. **CLASS Installation:**
+4. **CLASS Installation:**
    * Install CLASS with `pip install classy` and verify it using the built-in test tool.
 
-6. **CLASS Data:**
+5. **CLASS Data:**
    * Ensure the `class-data` directory contains the necessary CLASS documentation, code files (.py, .ini, .txt), and potentially PDF documents for the RAG system.
 
-7. **System Prompts:**
+6. **System Prompts:**
    * Ensure the `prompts/` directory contains the necessary instruction files (`class_instructions.txt`, `review_instructions.txt`, etc.).
 
 ## Usage
 
-1. **Activate the conda environment:**
+1. **Activate the virtual environment:**
    ```bash
-   conda activate clapp
+   source .venv/bin/activate
    ```
 
 2. **Run the Streamlit application:**
    ```bash
-   streamlit run CLAPP.py
+   streamlit run clapp/app.py
    ```
 
 3. **Setup process:**
@@ -107,7 +108,7 @@ This project uses conda/mamba for environment management, which is compatible wi
 * `CLAPP.py`: The main Streamlit application script.
 * `.streamlit/secrets.toml`: Local secrets file for API keys.
 * `test_classy.py`: Script to test CLASS installation and functionality.
-* `environment.yml`: Conda environment specification with all required dependencies.
+* `requirements.txt`: Pip dependency list for local and Streamlit Cloud installs.
 * `class-data/`: Directory containing data for the RAG system (CLASS code, docs, etc.).
 * `prompts/`: Directory containing system prompts for the AI agents.
 * `images/`: Contains images used in the app interface, including the CLAPP logo.
