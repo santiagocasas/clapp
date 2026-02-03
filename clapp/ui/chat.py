@@ -84,9 +84,10 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
     )
     example_prompts = load_example_prompts()
 
-    if options and st.session_state.vector_store:
-        user_input = st.chat_input("Type your prompt here...")
-    else:
+    can_chat = bool(options and st.session_state.vector_store)
+    user_input = None
+
+    if not can_chat:
         if not has_any_key:
             st.markdown(
                 """
@@ -105,7 +106,6 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
                 """,
                 unsafe_allow_html=True,
             )
-        user_input = None
 
     if "show_example_prompts" not in st.session_state:
         st.session_state.show_example_prompts = True
@@ -122,11 +122,40 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
             else:
                 st.markdown(message["content"])
 
+    has_code_response = any(
+        msg["role"] == "assistant" and "```" in msg["content"]
+        for msg in st.session_state.get("messages", [])
+    )
+
     if st.session_state.get("greeted") and options and st.session_state.vector_store:
-        show_examples = st.toggle(
-            "Show example prompts",
-            key="show_example_prompts",
-        )
+        run_col, example_col = st.columns([1, 2])
+        with run_col:
+            button_kwargs = {
+                "label": "▶ Run last code",
+                "key": "run_last_code_inline",
+                "disabled": not has_code_response,
+            }
+            if not has_code_response:
+                button_kwargs["help"] = (
+                    "Enabled when the last assistant response contains code."
+                )
+
+            if st.button(**button_kwargs):
+                response = run_code_request()
+                st.session_state.last_token_count = estimate_token_count(
+                    response.content, st.session_state.selected_model
+                )
+                st.session_state.memory.add_ai_message(response.content)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": response.content}
+                )
+                st.rerun()
+
+        with example_col:
+            show_examples = st.toggle(
+                "Show example prompts",
+                key="show_example_prompts",
+            )
         if show_examples and example_prompts:
             st.caption("Try one of these example questions:")
             st.pills(
@@ -138,7 +167,10 @@ def render_chat(options, api_key, api_key_gai, initial_instructions):
                 on_change=handle_example_prompt,
             )
 
-    if not user_input and options and st.session_state.vector_store:
+    if can_chat:
+        user_input = st.chat_input("Type your prompt here...")
+
+    if not user_input and can_chat:
         queued_prompt = st.session_state.pop("queued_prompt", None)
         if queued_prompt:
             user_input = queued_prompt

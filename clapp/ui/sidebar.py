@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -13,6 +14,7 @@ from clapp.config import (
     DEFAULT_MODEL,
     GEMINI_MODELS,
     GPT_MODELS,
+    get_openai_base_url,
     normalize_base_url,
 )
 from clapp.langchain_compat import ChatMessageHistory
@@ -44,6 +46,56 @@ def blablador_get_models(base_url: str, api_key: str):
         return None, f"Request failed: {exc}"
     except Exception as exc:
         return None, f"Blablador request failed: {exc}"
+
+
+def _key_fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _maybe_toast_valid_key(provider: str, api_key: str, ok: bool) -> None:
+    if not api_key or not ok:
+        return
+    validated = st.session_state.get("validated_api_keys")
+    if not isinstance(validated, dict):
+        validated = {}
+        st.session_state.validated_api_keys = validated
+    fingerprints = validated.get(provider)
+    if not isinstance(fingerprints, set):
+        fingerprints = set()
+        validated[provider] = fingerprints
+
+    fp = _key_fingerprint(api_key)
+    if fp in fingerprints:
+        return
+    fingerprints.add(fp)
+    st.toast(f"{provider} API key successfully loaded")
+
+
+def _validate_openai_key(api_key: str) -> bool:
+    if not api_key:
+        return False
+    base_url = get_openai_base_url() or "https://api.openai.com/v1/"
+    url = f"{normalize_base_url(base_url)}models"
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=3,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def _validate_gemini_key(api_key: str) -> bool:
+    if not api_key:
+        return False
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
+    try:
+        resp = requests.get(url, params={"key": api_key}, timeout=3)
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 def extract_blablador_model_ids(models_payload):
@@ -321,8 +373,21 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
         if api_key:
             st.session_state.saved_api_key = api_key
+            last = st.session_state.get("_last_openai_key_fp")
+            fp = _key_fingerprint(api_key)
+            if fp != last:
+                st.session_state._last_openai_key_fp = fp
+                _maybe_toast_valid_key("OpenAI", api_key, _validate_openai_key(api_key))
+
         if api_key_gai:
             st.session_state.saved_api_key_gai = api_key_gai
+            last = st.session_state.get("_last_gemini_key_fp")
+            fp = _key_fingerprint(api_key_gai)
+            if fp != last:
+                st.session_state._last_gemini_key_fp = fp
+                _maybe_toast_valid_key(
+                    "Gemini", api_key_gai, _validate_gemini_key(api_key_gai)
+                )
 
         st.markdown(
             '<div class="sidebar-title">Blablador (Helmholtz AI)</div>',

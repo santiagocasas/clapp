@@ -89,9 +89,21 @@ def maybe_greet(initial_instructions, api_key, api_key_gai):
 
             messages = [
                 SystemMessage(content=initial_instructions),
+                SystemMessage(
+                    content=(
+                        "<system-reminder>\n"
+                        "This is the app greeting only.\n"
+                        "Write plain text only.\n"
+                        "Do NOT include any code, pseudocode, examples, or markdown fences/backticks.\n"
+                        "Keep it short (max ~100 words).\n"
+                        "</system-reminder>"
+                    )
+                ),
                 HumanMessage(
                     content=(
                         "Please greet the user and briefly explain what you can do as the CLASS code assistant."
+                        " Keep it short (max ~100 words)."
+                        " Do NOT include any code blocks or example code."
                     )
                 ),
             ]
