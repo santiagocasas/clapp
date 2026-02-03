@@ -1,6 +1,12 @@
 ## Secrets
 secrets.toml
 
+## Windows metadata
+*:Zone.Identifier
+
+## Local indexes
+indexes/
+
 # Notebook outputs
 notebooks/*.pdf
 

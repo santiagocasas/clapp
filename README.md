@@ -51,7 +51,7 @@ CLAPP acknowledges the support of the [Blablador API](https://sdlaml.pages.jsc.f
 
 ## Setup and Installation
 
-This project uses `requirements.txt` with pip/uv. CLASS (`classy`) does not install reliably with conda.
+This project uses `pyproject.toml` (PEP 621) with `uv`. CLASS (`classy`) does not install reliably with conda.
 
 1. **Clone the repository:**
    ```bash
@@ -61,10 +61,10 @@ This project uses `requirements.txt` with pip/uv. CLASS (`classy`) does not inst
 
 2. **Create a virtual environment and install dependencies:**
    ```bash
-   uv venv .venv --python 3.11
-   source .venv/bin/activate
-   uv pip install -r requirements.txt
-   ```
+    uv venv .venv --python 3.11
+    source .venv/bin/activate
+    uv sync
+    ```
 
 3. **API Keys:**
    * Create `.streamlit/secrets.toml` with your keys.
@@ -89,8 +89,8 @@ This project uses `requirements.txt` with pip/uv. CLASS (`classy`) does not inst
 
 2. **Run the Streamlit application:**
    ```bash
-   streamlit run clapp/app.py
-   ```
+    uv run streamlit run clapp/app.py
+    ```
 
 3. **Setup process:**
    * Add your API keys in `.streamlit/secrets.toml`.
@@ -105,10 +105,10 @@ This project uses `requirements.txt` with pip/uv. CLASS (`classy`) does not inst
 
 ## Project Structure
 
-* `CLAPP.py`: The main Streamlit application script.
+* `clapp/app.py`: The main Streamlit application script.
 * `.streamlit/secrets.toml`: Local secrets file for API keys.
 * `test_classy.py`: Script to test CLASS installation and functionality.
-* `requirements.txt`: Pip dependency list for local and Streamlit Cloud installs.
+* `pyproject.toml`: Project dependencies (used by `uv sync`).
 * `class-data/`: Directory containing data for the RAG system (CLASS code, docs, etc.).
 * `prompts/`: Directory containing system prompts for the AI agents.
 * `images/`: Contains images used in the app interface, including the CLAPP logo.
