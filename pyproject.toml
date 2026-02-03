@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
-  { name = "Santiago Casas", email = "casas@physik.rwth-aachen.de" },
+  { name = "Santiago Casas", email = "santiago.casascastro@dlr.de" },
   { name = "Christian Fidler", email = "fidler@physik.rwth-aachen.de" },
 ]
 keywords = ["cosmology", "CLASS", "agents", "llm", "rag", "streamlit"]
