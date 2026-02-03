@@ -62,6 +62,28 @@ def extract_blablador_model_ids(models_payload):
     return model_ids
 
 
+def extract_blablador_models(models_payload):
+    if not isinstance(models_payload, dict):
+        return []
+    data = models_payload.get("data", [])
+    models = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if not isinstance(model_id, str) or not model_id:
+            continue
+        if model_id.startswith("text-"):
+            continue
+        client_count = item.get("client_count")
+        try:
+            client_count = int(client_count)
+        except Exception:
+            client_count = 0
+        models.append({"id": model_id, "client_count": client_count})
+    return models
+
+
 def get_live_blablador_models():
     if not st.session_state.saved_api_key_blablador:
         st.session_state.blablador_models = []
@@ -85,16 +107,64 @@ def get_live_blablador_models():
         )
         if error:
             st.session_state.blablador_models = []
+            st.session_state.blablador_models_meta = {}
             st.session_state.blablador_models_error = error
             st.session_state.blablador_models_payload = None
         else:
-            st.session_state.blablador_models = extract_blablador_model_ids(models)
+            extracted = extract_blablador_models(models)
+            st.session_state.blablador_models = [entry["id"] for entry in extracted]
+            st.session_state.blablador_models_meta = {
+                entry["id"]: entry.get("client_count", 0) for entry in extracted
+            }
             st.session_state.blablador_models_error = None
             st.session_state.blablador_models_payload = models
         st.session_state.blablador_models_key = st.session_state.saved_api_key_blablador
         st.session_state.blablador_models_url = st.session_state.blablador_base_url
 
     return st.session_state.get("blablador_models", [])
+
+
+def _is_embedding_model_id(model_id: str) -> bool:
+    lowered = model_id.lower()
+    if "embedding" in lowered:
+        return True
+    if "emdeddings" in lowered:
+        return True
+    return False
+
+
+def _is_chat_eligible_blablador_model(model_id: str, client_count: int) -> bool:
+    if client_count <= 0:
+        return False
+    if _is_embedding_model_id(model_id):
+        return False
+    return True
+
+
+def _pick_default_blablador_model(blablador_chat_models: list[str]) -> str | None:
+    if not blablador_chat_models:
+        return None
+    for candidate in (
+        "MiniMax-M2.1",
+        "alias-huge",
+        "alias-large",
+        "alias-code",
+        "alias-fast",
+    ):
+        for model_id in blablador_chat_models:
+            if candidate == "MiniMax-M2.1":
+                if candidate in model_id:
+                    return model_id
+            elif model_id == candidate:
+                return model_id
+    return blablador_chat_models[0]
+
+
+def _format_model_label(model_id: str) -> str:
+    current_best = st.session_state.get("current_best_minimax_id")
+    if current_best and model_id == current_best:
+        return "current-best-MiniMax"
+    return model_id
 
 
 def render_sidebar(base_dir: str) -> SidebarState:
@@ -126,7 +196,7 @@ def render_sidebar(base_dir: str) -> SidebarState:
             unsafe_allow_html=True,
         )
         st.markdown(
-            "Supported by <a href=\"https://sdlaml.pages.jsc.fz-juelich.de/ai/guides/blablador_api_access/\" target=\"_blank\">Blablador</a> and <a href=\"https://www.helmholtz.ai/\" target=\"_blank\">Helmholtz AI</a>.",
+            'Supported by <a href="https://sdlaml.pages.jsc.fz-juelich.de/ai/guides/blablador_api_access/" target="_blank">Blablador</a> and <a href="https://www.helmholtz.ai/" target="_blank">Helmholtz AI</a>.',
             unsafe_allow_html=True,
         )
         blablador_logo = os.path.join(base_dir, "images", "blablador-ng.svg")
@@ -137,30 +207,9 @@ def render_sidebar(base_dir: str) -> SidebarState:
         else:
             st.warning("No BLABLADOR_API_KEY found in secrets.toml.")
 
-        if "show_extended_blablador_models" not in st.session_state:
-            st.session_state.show_extended_blablador_models = False
-        st.caption("Extended models may include experimental or offline entries.")
-        st.session_state.show_extended_blablador_models = st.checkbox(
-            "Click here to activate extended Blablador models.",
-            value=st.session_state.show_extended_blablador_models,
+        st.caption(
+            "Loading live Blablador models (only online chat models are shown; embedding-only models are hidden)."
         )
-        if st.session_state.show_extended_blablador_models:
-            if not st.session_state.saved_api_key_blablador:
-                st.error("Please set BLABLADOR_API_KEY in secrets.toml first.")
-            else:
-                with st.spinner("Loading Blablador models..."):
-                    try:
-                        models = get_live_blablador_models()
-                        if st.session_state.get("blablador_models_error"):
-                            st.error(st.session_state["blablador_models_error"])
-                        else:
-                            st.caption(f"Loaded {len(models)} models.")
-                            with st.expander("View Blablador model response"):
-                                st.json(
-                                    st.session_state.get("blablador_models_payload", {})
-                                )
-                    except Exception as exc:
-                        st.error(f"Blablador model load failed: {exc}")
 
         if st.session_state.saved_api_key:
             api_key = st.session_state.saved_api_key
@@ -169,19 +218,83 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
         options = []
         blablador_models = []
+        blablador_chat_models = []
         if st.session_state.saved_api_key_blablador:
-            blablador_models = BLABLADOR_MODELS
-            if st.session_state.show_extended_blablador_models:
-                extended_models = get_live_blablador_models()
-                if not extended_models:
-                    if st.session_state.get("blablador_models_error"):
-                        st.warning(
-                            "Could not load live Blablador models. Using aliases instead."
+            needs_refresh = (
+                "blablador_models" not in st.session_state
+                or st.session_state.get("blablador_models_key")
+                != st.session_state.saved_api_key_blablador
+                or st.session_state.get("blablador_models_url")
+                != st.session_state.blablador_base_url
+            )
+            if needs_refresh:
+                progress = st.progress(0)
+                status = st.empty()
+                with st.spinner("Loading Blablador models..."):
+                    status.caption("Fetching /models")
+                    progress.progress(20)
+                    blablador_models = get_live_blablador_models()
+                    progress.progress(60)
+                    meta = st.session_state.get("blablador_models_meta", {})
+                    blablador_chat_models = [
+                        model_id
+                        for model_id in blablador_models
+                        if _is_chat_eligible_blablador_model(
+                            model_id, int(meta.get(model_id, 0))
                         )
-                else:
-                    blablador_models = extended_models
-            st.session_state.blablador_models = blablador_models
-            options += blablador_models
+                    ]
+                    progress.progress(85)
+                    st.session_state.current_best_minimax_id = next(
+                        (mid for mid in blablador_chat_models if "MiniMax-M2.1" in mid),
+                        None,
+                    )
+                    progress.progress(100)
+                status.empty()
+                progress.empty()
+            else:
+                blablador_models = st.session_state.get("blablador_models", [])
+                meta = st.session_state.get("blablador_models_meta", {})
+                blablador_chat_models = [
+                    model_id
+                    for model_id in blablador_models
+                    if _is_chat_eligible_blablador_model(
+                        model_id, int(meta.get(model_id, 0))
+                    )
+                ]
+                st.session_state.current_best_minimax_id = next(
+                    (mid for mid in blablador_chat_models if "MiniMax-M2.1" in mid),
+                    None,
+                )
+
+            if st.session_state.get("blablador_models_error"):
+                st.warning(
+                    "Blablador model list could not be loaded."
+                    " Please try again or choose OpenAI/Gemini if configured."
+                )
+            elif not blablador_chat_models:
+                st.warning(
+                    "No online chat-capable Blablador models detected."
+                    " Please try again or choose OpenAI/Gemini if configured."
+                )
+            else:
+                chosen_default = _pick_default_blablador_model(blablador_chat_models)
+                if chosen_default:
+                    notice_key = (
+                        st.session_state.saved_api_key_blablador,
+                        st.session_state.blablador_base_url,
+                        chosen_default,
+                    )
+                    if (
+                        st.session_state.get("blablador_startup_notice_key")
+                        != notice_key
+                    ):
+                        st.session_state.blablador_startup_notice_key = notice_key
+                        st.info(
+                            f"Detected {len(blablador_chat_models)} online Blablador chat models. "
+                            f"Defaulting to {_format_model_label(chosen_default)}."
+                        )
+
+                options += blablador_chat_models
         if api_key_gai:
             options += GEMINI_MODELS
         if api_key:
@@ -191,13 +304,17 @@ def render_sidebar(base_dir: str) -> SidebarState:
             st.markdown("---")
 
             if st.session_state.selected_model not in options:
+                preferred = _pick_default_blablador_model(blablador_chat_models)
                 st.session_state.selected_model = (
-                    DEFAULT_MODEL if DEFAULT_MODEL in options else options[0]
+                    preferred
+                    if preferred in options
+                    else (DEFAULT_MODEL if DEFAULT_MODEL in options else options[0])
                 )
             st.session_state.selected_model = st.selectbox(
                 "4. Choose LLM model",
                 options=options,
                 index=options.index(st.session_state.selected_model),
+                format_func=_format_model_label,
             )
         else:
             st.session_state.selected_model = None
@@ -216,7 +333,7 @@ def render_sidebar(base_dir: str) -> SidebarState:
         elif st.session_state.selected_model in GPT_MODELS and api_key:
             st.session_state.llm_initialized = True
         elif (
-            st.session_state.selected_model in blablador_models
+            st.session_state.selected_model in blablador_chat_models
             and st.session_state.saved_api_key_blablador
         ):
             st.session_state.llm_initialized = True
@@ -263,7 +380,9 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
         embedding_provider_options = ["HuggingFace (local)"]
         if st.session_state.saved_api_key_blablador:
-            embedding_provider_options.append("Blablador (alias-embeddings)")
+            meta = st.session_state.get("blablador_models_meta", {})
+            if int(meta.get("alias-embeddings", 0)) > 0:
+                embedding_provider_options.append("Blablador (alias-embeddings)")
         if st.session_state.embedding_provider not in embedding_provider_options:
             st.session_state.embedding_provider = embedding_provider_options[0]
 
@@ -286,9 +405,9 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
             def sanitize(documents):
                 for doc in documents:
-                    doc.page_content = doc.page_content.encode("utf-8", "ignore").decode(
-                        "utf-8"
-                    )
+                    doc.page_content = doc.page_content.encode(
+                        "utf-8", "ignore"
+                    ).decode("utf-8")
                 return documents
 
             splits = text_splitter.split_documents(all_docs)
@@ -446,14 +565,18 @@ def render_sidebar(base_dir: str) -> SidebarState:
                         for line in iter(process.stdout.readline, ""):
                             output_text += line
                             if line.strip():
-                                current_line_placeholder.info(f"Current: {line.strip()}")
+                                current_line_placeholder.info(
+                                    f"Current: {line.strip()}"
+                                )
 
                     return_code = process.wait()
 
                     current_line_placeholder.empty()
 
                     if return_code == 0:
-                        status_placeholder.success("✅ CLASS test completed successfully!")
+                        status_placeholder.success(
+                            "✅ CLASS test completed successfully!"
+                        )
                     else:
                         status_placeholder.error(
                             f"❌ CLASS test failed with return code: {return_code}"
@@ -475,7 +598,9 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
                     with st.expander("View Full Test Log", expanded=False):
                         st.code(output_text)
-                        plot_path = os.path.join(temp_dir, "cmb_temperature_spectrum.png")
+                        plot_path = os.path.join(
+                            temp_dir, "cmb_temperature_spectrum.png"
+                        )
                         if os.path.exists(plot_path):
                             st.subheader("Generated CMB Power Spectrum")
                             st.image(plot_path, use_container_width=True)

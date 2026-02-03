@@ -179,7 +179,9 @@ def index_in_spans(index: int, spans: list[tuple[int, int]]) -> bool:
     return any(start <= index <= end for start, end in spans)
 
 
-def changes_within_spans(original: str, updated: str, spans: list[tuple[int, int]]) -> bool:
+def changes_within_spans(
+    original: str, updated: str, spans: list[tuple[int, int]]
+) -> bool:
     if not spans:
         return False
     original_lines = original.splitlines()
@@ -243,9 +245,9 @@ def replace_param_value_string(
 ) -> tuple[str, bool]:
     changed = False
     for old_value in old_values:
-        pattern = (
-            r"(['\"]%s['\"]\s*[:=]\s*)['\"]%s['\"]"
-            % (re.escape(key), re.escape(old_value))
+        pattern = r"(['\"]%s['\"]\s*[:=]\s*)['\"]%s['\"]" % (
+            re.escape(key),
+            re.escape(old_value),
         )
         code, count = re.subn(pattern, r"\1'%s'" % new_value, code)
         changed = changed or count > 0
@@ -271,14 +273,10 @@ def normalize_non_linear_values(code: str) -> tuple[str, list[str], bool]:
                 continue
             replacement = "hmcode" if value.lower() == "mead" else "halofit"
             code = code.replace(match.group(0), f"{match.group(1)}'{replacement}'")
-            notes.append(
-                f"Normalized non_linear value '{value}' to '{replacement}'."
-            )
+            notes.append(f"Normalized non_linear value '{value}' to '{replacement}'.")
             changed = True
 
-    list_pattern = (
-        r"(nonlinear[_\s]*methods?\s*=\s*\[[^\]]*)['\"]mead['\"]"
-    )
+    list_pattern = r"(nonlinear[_\s]*methods?\s*=\s*\[[^\]]*)['\"]mead['\"]"
     code, list_count = re.subn(list_pattern, r"\1'hmcode'", code, flags=re.IGNORECASE)
     if list_count:
         notes.append("Replaced 'mead' with 'hmcode' in nonlinear method lists.")
@@ -380,7 +378,9 @@ def build_preflight_prompt(
 ) -> str:
     rules_block = rules_text or "No additional rules provided."
     docs_block = doc_context or "(No documentation context available.)"
-    notes_block = "\n".join(f"- {note}" for note in rule_notes) if rule_notes else "- None"
+    notes_block = (
+        "\n".join(f"- {note}" for note in rule_notes) if rule_notes else "- None"
+    )
     return f"""
 You are a CLASS preflight checker. Apply the rules below and make minimal changes.
 Only edit CLASS parameter dictionaries passed into Class().set or direct CLASS method calls (e.g., cosmo.pk).
@@ -670,13 +670,13 @@ def get_alias_large_second_opinion(
     selected_model: str | None,
 ):
     blablador_models = st.session_state.get("blablador_models") or BLABLADOR_MODELS
-    if selected_model == "alias-large":
+    if selected_model == "alias-huge":
         return ""
-    if "alias-large" not in blablador_models or not blablador_api_key:
+    if "alias-huge" not in blablador_models or not blablador_api_key:
         return ""
     try:
         advisor = build_llm(
-            selected_model="alias-large",
+            selected_model="alias-huge",
             api_key=None,
             api_key_gai=None,
             blablador_api_key=blablador_api_key,
@@ -839,9 +839,7 @@ def call_code(
                 )
                 if removed_params:
                     removed_text = ", ".join(removed_params)
-                    st.warning(
-                        "Removed parameters rejected by CLASS: " + removed_text
-                    )
+                    st.warning("Removed parameters rejected by CLASS: " + removed_text)
                     removed_params_block = (
                         "Removed parameters rejected by CLASS: " + removed_text + "\n"
                     )
@@ -865,9 +863,7 @@ def call_code(
             if error_evidence:
                 st.session_state["last_error_evidence"] = error_evidence
             docs_block = (
-                f"\n\nRelevant documentation:\n{doc_context}\n"
-                if doc_context
-                else ""
+                f"\n\nRelevant documentation:\n{doc_context}\n" if doc_context else ""
             )
             second_opinion = get_alias_large_second_opinion(
                 error_summary=error_summary or execution_output,
@@ -880,12 +876,12 @@ def call_code(
                 selected_model=selected_model,
             )
             second_opinion_block = (
-                f"\n\nSecond opinion (alias-large):\n{second_opinion}\n"
+                f"\n\nSecond opinion (alias-huge):\n{second_opinion}\n"
                 if second_opinion
                 else ""
             )
             if second_opinion:
-                st.info("Second opinion (alias-large) added to auto-fix prompt.")
+                st.info("Second opinion (alias-huge) added to auto-fix prompt.")
             review_message = f"""
             Previous answer had errors during execution:
             {error_summary or execution_output}
@@ -1012,9 +1008,7 @@ def call_code(
                         "Auto-corrected parameters: "
                         + ", ".join([f"{old} -> {new}" for old, new in replacements])
                     )
-            invalid_params, suggestions = validate_class_params_in_code(
-                code_to_execute
-            )
+            invalid_params, suggestions = validate_class_params_in_code(code_to_execute)
             if invalid_params:
                 suggestions_text = ""
                 for param in invalid_params:

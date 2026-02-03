@@ -38,7 +38,9 @@ def get_local_secret(key: str):
 
 
 def get_openai_base_url():
-    base_url = get_local_secret("OPENAI_BASE_URL") or get_local_secret("OPENAI_API_BASE")
+    base_url = get_local_secret("OPENAI_BASE_URL") or get_local_secret(
+        "OPENAI_API_BASE"
+    )
     if base_url:
         return base_url
     env_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
@@ -68,8 +70,13 @@ def normalize_base_url(base_url: str) -> str:
 
 GPT_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1"]
 GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"]
-BLABLADOR_MODELS = ["alias-fast", "alias-large", "alias-code", "alias-embeddings"]
+BLABLADOR_MODELS = [
+    "alias-fast",
+    "alias-code",
+    "alias-huge",
+    "alias-large",
+]
 
-DEFAULT_MODEL = "alias-large"
+DEFAULT_MODEL = "alias-huge"
 DEFAULT_BLABLADOR_BASE_URL = "https://api.helmholtz-blablador.fz-juelich.de/v1/"
 DEFAULT_EMBEDDING_PROVIDER = "Blablador (alias-embeddings)"

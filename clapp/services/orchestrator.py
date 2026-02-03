@@ -12,6 +12,14 @@ class Response:
         self.content = content
 
 
+def _is_blablador_model(model_id: str | None) -> bool:
+    if not model_id:
+        return False
+    if model_id in BLABLADOR_MODELS or model_id.startswith("alias-"):
+        return True
+    return model_id in (st.session_state.get("blablador_models") or [])
+
+
 def run_code_request():
     agents = get_agents()
     last_assistant_message = None
@@ -34,7 +42,7 @@ def run_code_request():
 
 def call_ai(context, user_input, initial_instructions):
     agents = get_agents()
-    if st.session_state.selected_model in BLABLADOR_MODELS:
+    if _is_blablador_model(st.session_state.selected_model):
         if st.session_state.mode_is_fast != "Fast Mode":
             return Response(content="Blablador models are only available in Fast Mode.")
     if st.session_state.mode_is_fast == "Fast Mode":
@@ -51,9 +59,7 @@ def call_ai(context, user_input, initial_instructions):
         except Exception as exc:
             error_message = format_llm_error(exc)
             if st.session_state.get("debug"):
-                st.session_state.debug_messages.append(
-                    ("Streaming error", str(exc))
-                )
+                st.session_state.debug_messages.append(("Streaming error", str(exc)))
             return Response(content=error_message)
 
         response = "".join(response)
@@ -85,9 +91,7 @@ def call_ai(context, user_input, initial_instructions):
     except Exception as exc:
         error_message = format_llm_error(exc)
         if st.session_state.get("debug"):
-            st.session_state.debug_messages.append(
-                ("Group chat error", str(exc))
-            )
+            st.session_state.debug_messages.append(("Group chat error", str(exc)))
         return Response(content=error_message)
     formatted_answer = None
     if last_agent == agents.get("refine_agent_final") or last_agent == agents.get(
