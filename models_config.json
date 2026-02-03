@@ -1,0 +1,82 @@
+{
+  "providers": {
+    "blablador": {
+      "prefix": "B: ",
+      "note": "Blablador models can be temporarily unavailable; CLAPP may fall back automatically.",
+      "aliases": [
+        {
+          "contains": "GPT-OSS-120b",
+          "alias": "1-GPT-OSS-120b",
+	  "note": "(Best) An open model released by OpenAI in August 2025"
+        },
+        {
+          "contains": "MiniMax-M2.1",
+          "alias": "2-MiniMax-M2.1",
+          "note": "(Current) Our best model as of December 26, 2025"
+        },
+        {
+          "contains": "Apertus",
+          "alias": "4-Apertus-8B",
+          "note": "A new swiss model from September 2025"
+        },
+        {
+          "contains": "Ministral-3-14B",
+          "alias": "3-Ministral-3",
+          "note": "The latest Ministral from Dec.2.2025"
+        },
+        {
+          "contains": "Qwen3-Coder",
+          "alias": "5-Qwen3-30B",
+          "note": "(Function Call) A code model from August 2025"
+        },
+        {
+          "contains": "GLM-4.7 Quantized",
+          "alias": "6-GLM-4.7-Quantized",
+          "note": "(Slow) Quantized - The best model as of January 22nd, 2026"
+        },
+        {
+          "contains": "alias-huge",
+          "alias": "alias-huge"
+        },
+        {
+          "contains": "alias-large",
+          "alias": "alias-large"
+        },
+        {
+          "contains": "alias-code",
+          "alias": "alias-code"
+        },
+        {
+          "contains": "alias-fast",
+          "alias": "alias-fast"
+        }
+      ],
+      "priority_contains": [
+        "GPT-OSS-120b",
+        "MiniMax-M2.1",
+        "alias-huge",
+        "alias-large",
+        "alias-code",
+        "alias-fast"
+      ]
+    },
+    "gemini": {
+      "prefix": "G: ",
+      "note": "Gemini models show up when GEMINI_API_KEY is set.",
+      "models": [
+        "gemini-3-flash-preview",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash"
+      ]
+    },
+    "openai": {
+      "prefix": "O: ",
+      "note": "OpenAI models show up when OPENAI_API_KEY is set.",
+      "models": [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "gpt-4.1"
+      ]
+    }
+  }
+}

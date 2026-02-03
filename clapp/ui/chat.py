@@ -4,7 +4,6 @@ from difflib import SequenceMatcher
 
 import streamlit as st
 
-from clapp.config import GEMINI_MODELS
 from clapp.llms.providers import build_llm
 from clapp.rag.pipeline import retrieve_context
 from clapp.services.orchestrator import call_ai, run_code_request

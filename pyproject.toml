@@ -199,9 +199,38 @@ dependencies = [
   "sentence-transformers",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6.0",
+]
+
 [project.urls]
 Homepage = "https://classclapp.streamlit.app/"
 Repository = "https://github.com/santiagocasas/clapp"
 
 [tool.hatch.build.targets.wheel]
 packages = ["clapp"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = [
+  ".clappenv",
+  ".venv",
+  "class-data",
+  "indexes",
+  "plots",
+  "clapp_legacy.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"clapp/app.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

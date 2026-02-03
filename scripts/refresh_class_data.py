@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import json
-from pathlib import Path
 import shutil
 import sys
+from pathlib import Path
 
 
 def clear_directory(target_dir: Path) -> None:
@@ -49,12 +49,14 @@ def main() -> int:
     default_class_public_root = repo_root.parent / "class_public"
     default_docs_root = repo_root.parent / "class-code-documentation"
 
-    class_public_root = resolve_config_path(
-        config.get("class_public_path"), repo_root
-    ) or default_class_public_root
-    class_docs_root = resolve_config_path(
-        config.get("class_code_documentation_path"), repo_root
-    ) or default_docs_root
+    class_public_root = (
+        resolve_config_path(config.get("class_public_path"), repo_root)
+        or default_class_public_root
+    )
+    class_docs_root = (
+        resolve_config_path(config.get("class_code_documentation_path"), repo_root)
+        or default_docs_root
+    )
 
     parser = argparse.ArgumentParser(
         description=(

@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit as st
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from clapp.config import GEMINI_MODELS
@@ -17,6 +16,10 @@ def _is_blablador_model(model_id: str | None) -> bool:
 
 
 def _build_blablador_greeting_chain() -> list[str]:
+    preferred = st.session_state.get("blablador_preferred_models")
+    if isinstance(preferred, list) and preferred:
+        return [m for m in preferred if isinstance(m, str) and m]
+
     meta = st.session_state.get("blablador_models_meta", {})
     detected = set(st.session_state.get("blablador_models") or [])
 
@@ -28,24 +31,39 @@ def _build_blablador_greeting_chain() -> list[str]:
         except Exception:
             return False
 
+    priority_contains = st.session_state.get("blablador_priority_contains")
+    if not isinstance(priority_contains, list) or not priority_contains:
+        priority_contains = [
+            "GPT-OSS-120b",
+            "MiniMax-M2.1",
+            "alias-huge",
+            "alias-large",
+            "alias-code",
+            "alias-fast",
+        ]
+
     chain = []
-    current_best = st.session_state.get("current_best_minimax_id")
-    if current_best and ok(current_best):
-        chain.append(current_best)
-    for candidate in ("alias-huge", "alias-large", "alias-code", "alias-fast"):
-        if ok(candidate):
-            chain.append(candidate)
+    for needle in priority_contains:
+        if not isinstance(needle, str) or not needle:
+            continue
+        for mid in detected:
+            if needle in mid and ok(mid):
+                chain.append(mid)
+                break
     return chain
 
 
 def _label_for_model(model_id: str) -> str:
-    current_best = st.session_state.get("current_best_minimax_id")
-    if current_best and model_id == current_best:
-        return "current-best-MiniMax"
+    labels = st.session_state.get("model_label_overrides")
+    if isinstance(labels, dict):
+        label = labels.get(model_id)
+        if isinstance(label, str) and label:
+            return label
     return model_id
 
 
 def maybe_greet(initial_instructions, api_key, api_key_gai):
+    greeting_timeout_seconds = 5
     if (
         "llm_initialized" in st.session_state
         and st.session_state.llm_initialized
@@ -94,14 +112,11 @@ def maybe_greet(initial_instructions, api_key, api_key_gai):
                     callbacks=[welcome_stream_handler],
                     streaming=True,
                     temperature=1.0,
-                    timeout=10,
+                    timeout=greeting_timeout_seconds,
                 )
                 try:
                     greeting = streaming_llm.invoke(messages)
                     last_exc = None
-                    if st.session_state.selected_model != model_id:
-                        st.session_state.selected_model = model_id
-                        st.session_state.previous_model = model_id
                     break
                 except Exception as exc:
                     last_exc = exc

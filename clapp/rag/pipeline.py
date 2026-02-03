@@ -36,9 +36,9 @@ def retrieve_context(vector_store, question, k=4):
                 or get_local_secret("BLABLADOR_BASE_URL")
                 or DEFAULT_BLABLADOR_BASE_URL
             )
-            api_key = st.session_state.get("saved_api_key_blablador") or get_local_secret(
-                "BLABLADOR_API_KEY"
-            )
+            api_key = st.session_state.get(
+                "saved_api_key_blablador"
+            ) or get_local_secret("BLABLADOR_API_KEY")
             embeddings = build_embeddings(embedding_provider, api_key, base_url)
             embedding = embeddings.embed_query(question)
             docs = vector_store.similarity_search_by_vector(embedding, k=k)

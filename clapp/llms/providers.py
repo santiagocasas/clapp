@@ -1,12 +1,12 @@
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from clapp.config import (
     BLABLADOR_MODELS,
+    DEFAULT_MODEL,
     GEMINI_MODELS,
     GPT_MODELS,
-    DEFAULT_MODEL,
     get_openai_base_url,
     normalize_base_url,
 )

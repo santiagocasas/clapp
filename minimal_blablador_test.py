@@ -1,6 +1,8 @@
 import os
-import requests
 import tomllib
+
+import requests
+
 
 def load_secrets():
     base_dir = os.path.dirname(__file__)
@@ -35,6 +37,7 @@ def load_blablador_base_url():
     secrets = load_secrets()
     return secrets.get("BLABLADOR_BASE_URL")
 
+
 api_key = load_blablador_api_key()
 
 # Set your Blablador API key
@@ -49,15 +52,20 @@ config = {
     "model": "alias-fast",
 }
 
+
 def normalize_base_url(base_url: str) -> str:
     return base_url.rstrip("/") + "/"
+
 
 def test_api_key():
     if not config["api_key"]:
         return {"error": "Missing BLABLADOR_API_KEY"}
     headers = {"Authorization": f"Bearer {config['api_key']}"}
-    response = requests.get(f"{normalize_base_url(config['base_url'])}models", headers=headers, timeout=10)
+    response = requests.get(
+        f"{normalize_base_url(config['base_url'])}models", headers=headers, timeout=10
+    )
     return response.json()
+
 
 def format_models(models_response):
     model_ids = extract_model_ids(models_response)
@@ -96,6 +104,7 @@ def choose_model(model_ids):
             return choice
         print("Please enter a model number or id from the list.")
 
+
 def call_blablador_chat(messages):
     if not config["api_key"]:
         return {"error": "Missing BLABLADOR_API_KEY"}
@@ -119,6 +128,7 @@ def call_blablador_chat(messages):
         return response.json()
     except ValueError:
         return {"error": "Non-JSON response from server."}
+
 
 def run_chat():
     messages = [{"role": "system", "content": "You are a helpful assistant."}]
@@ -148,6 +158,7 @@ def run_chat():
             continue
         print("Assistant:", assistant_text)
         messages.append({"role": "assistant", "content": assistant_text})
+
 
 # Test the API key and interact with the assistant
 if __name__ == "__main__":

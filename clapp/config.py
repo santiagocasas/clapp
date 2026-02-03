@@ -69,7 +69,7 @@ def normalize_base_url(base_url: str) -> str:
 
 
 GPT_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1"]
-GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"]
+GEMINI_MODELS = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"]
 BLABLADOR_MODELS = [
     "alias-fast",
     "alias-code",

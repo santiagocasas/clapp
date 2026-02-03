@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -7,19 +8,17 @@ import requests
 import streamlit as st
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-from clapp.langchain_compat import ChatMessageHistory
-
 from clapp.config import (
-    BLABLADOR_MODELS,
     DEFAULT_EMBEDDING_PROVIDER,
     DEFAULT_MODEL,
     GEMINI_MODELS,
     GPT_MODELS,
     normalize_base_url,
 )
+from clapp.langchain_compat import ChatMessageHistory
 from clapp.llms.providers import build_embeddings
-from clapp.rag.ingest import get_all_docs_from_class_data
 from clapp.rag import store as rag_store
+from clapp.rag.ingest import get_all_docs_from_class_data
 from clapp.rag.store import FAISS
 
 
@@ -144,26 +143,159 @@ def _is_chat_eligible_blablador_model(model_id: str, client_count: int) -> bool:
 def _pick_default_blablador_model(blablador_chat_models: list[str]) -> str | None:
     if not blablador_chat_models:
         return None
-    for candidate in (
-        "MiniMax-M2.1",
-        "alias-huge",
-        "alias-large",
-        "alias-code",
-        "alias-fast",
-    ):
-        for model_id in blablador_chat_models:
-            if candidate == "MiniMax-M2.1":
-                if candidate in model_id:
-                    return model_id
-            elif model_id == candidate:
-                return model_id
+
+    chain = st.session_state.get("blablador_preferred_models")
+    if isinstance(chain, list) and chain:
+        first = chain[0]
+        if first in blablador_chat_models:
+            return first
     return blablador_chat_models[0]
 
 
+def _load_models_config(base_dir: str) -> dict:
+    path = os.path.join(base_dir, "models_config.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict) and payload:
+            return payload
+        return {}
+    except OSError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _default_models_config() -> dict:
+    return {
+        "providers": {
+            "blablador": {
+                "prefix": "B: ",
+                "priority_contains": [
+                    "GPT-OSS-120b",
+                    "MiniMax-M2.1",
+                    "alias-huge",
+                    "alias-large",
+                    "alias-code",
+                    "alias-fast",
+                ],
+            },
+            "gemini": {
+                "prefix": "G: ",
+                "models": [
+                    "gemini-3-flash-preview",
+                    "gemini-2.5-pro",
+                    "gemini-2.5-flash",
+                ],
+            },
+            "openai": {
+                "prefix": "O: ",
+                "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1"],
+            },
+        },
+    }
+
+
+def _format_model_label_optional(model_id) -> str:
+    if not model_id:
+        return "(none)"
+    if isinstance(model_id, str):
+        return _format_model_label(model_id)
+    return str(model_id)
+
+
+def _build_preferred_chain(
+    model_ids: list[str],
+    priority_contains: list[str],
+) -> list[str]:
+    chain: list[str] = []
+
+    def add(model_id: str) -> None:
+        if model_id in chain:
+            return
+        chain.append(model_id)
+
+    for needle in priority_contains:
+        if not isinstance(needle, str) or not needle:
+            continue
+        for mid in model_ids:
+            if needle in mid:
+                add(mid)
+                break
+
+    return chain
+
+
+def _humanize_blablador_model_id(model_id: str) -> str:
+    if not model_id:
+        return ""
+    # Common Blablador style: "N - NAME - DESCRIPTION" -> "NAME"
+    if " - " in model_id:
+        parts = [p.strip() for p in model_id.split(" - ") if p.strip()]
+        if len(parts) >= 2:
+            return parts[1]
+    # Another common style: "8 GLM-4.7-Flash" -> "GLM-4.7-Flash"
+    head = model_id.lstrip()
+    i = 0
+    while i < len(head) and head[i].isdigit():
+        i += 1
+    if i and i < len(head) and head[i] == " ":
+        return head[i + 1 :].strip()
+    return model_id
+
+
+def _blablador_alias_for_model(model_id: str, aliases: list[dict]) -> str | None:
+    for entry in aliases:
+        if not isinstance(entry, dict):
+            continue
+        needle = entry.get("contains")
+        alias = entry.get("alias")
+        if isinstance(needle, str) and needle and needle in model_id:
+            if isinstance(alias, str) and alias:
+                return alias
+    return None
+
+
+def _blablador_note_for_model(model_id: str, aliases: list[dict]) -> str | None:
+    for entry in aliases:
+        if not isinstance(entry, dict):
+            continue
+        needle = entry.get("contains")
+        note = entry.get("note")
+        if isinstance(needle, str) and needle and needle in model_id:
+            if isinstance(note, str) and note.strip():
+                return note.strip()
+    return None
+
+
+def _build_blablador_label_overrides(
+    model_ids: list[str],
+    prefix: str,
+    aliases: list[dict],
+) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    used: dict[str, int] = {}
+
+    for mid in model_ids:
+        display = _blablador_alias_for_model(
+            mid, aliases
+        ) or _humanize_blablador_model_id(mid)
+        label = f"{prefix}{display}" if display else f"{prefix}{mid}"
+        count = used.get(label, 0) + 1
+        used[label] = count
+        if count > 1:
+            label = f"{label} ({count})"
+        labels[mid] = label
+
+    return labels
+
+
 def _format_model_label(model_id: str) -> str:
-    current_best = st.session_state.get("current_best_minimax_id")
-    if current_best and model_id == current_best:
-        return "current-best-MiniMax"
+    labels = st.session_state.get("model_label_overrides")
+    if isinstance(labels, dict):
+        label = labels.get(model_id)
+        if isinstance(label, str) and label:
+            return label
     return model_id
 
 
@@ -185,6 +317,7 @@ def render_sidebar(base_dir: str) -> SidebarState:
             placeholder="GEMINI_API_KEY",
         )
         st.caption("Get a Gemini API key from https://aistudio.google.com/apikey")
+        st.caption("OpenAI models appear after you set OPENAI_API_KEY.")
 
         if api_key:
             st.session_state.saved_api_key = api_key
@@ -220,6 +353,35 @@ def render_sidebar(base_dir: str) -> SidebarState:
         blablador_models = []
         blablador_chat_models = []
         if st.session_state.saved_api_key_blablador:
+            config = _load_models_config(base_dir) or _default_models_config()
+            st.session_state.models_config = config
+            providers = (
+                config.get("providers")
+                if isinstance(config.get("providers"), dict)
+                else {}
+            )
+            bl_conf = (
+                providers.get("blablador")
+                if isinstance(providers.get("blablador"), dict)
+                else {}
+            )
+            b_prefix = (
+                bl_conf.get("prefix")
+                if isinstance(bl_conf.get("prefix"), str)
+                else "B: "
+            )
+            b_priority_contains = (
+                bl_conf.get("priority_contains")
+                if isinstance(bl_conf.get("priority_contains"), list)
+                else []
+            )
+            b_aliases = (
+                bl_conf.get("aliases")
+                if isinstance(bl_conf.get("aliases"), list)
+                else []
+            )
+            st.session_state.blablador_priority_contains = b_priority_contains
+
             needs_refresh = (
                 "blablador_models" not in st.session_state
                 or st.session_state.get("blablador_models_key")
@@ -244,10 +406,17 @@ def render_sidebar(base_dir: str) -> SidebarState:
                         )
                     ]
                     progress.progress(85)
-                    st.session_state.current_best_minimax_id = next(
-                        (mid for mid in blablador_chat_models if "MiniMax-M2.1" in mid),
-                        None,
+                    preferred_chain = _build_preferred_chain(
+                        blablador_chat_models,
+                        b_priority_contains,
                     )
+                    label_overrides = _build_blablador_label_overrides(
+                        blablador_chat_models,
+                        b_prefix,
+                        b_aliases,
+                    )
+                    st.session_state.blablador_preferred_models = preferred_chain
+                    st.session_state.model_label_overrides = label_overrides
                     progress.progress(100)
                 status.empty()
                 progress.empty()
@@ -261,10 +430,17 @@ def render_sidebar(base_dir: str) -> SidebarState:
                         model_id, int(meta.get(model_id, 0))
                     )
                 ]
-                st.session_state.current_best_minimax_id = next(
-                    (mid for mid in blablador_chat_models if "MiniMax-M2.1" in mid),
-                    None,
+                preferred_chain = _build_preferred_chain(
+                    blablador_chat_models,
+                    b_priority_contains,
                 )
+                label_overrides = _build_blablador_label_overrides(
+                    blablador_chat_models,
+                    b_prefix,
+                    b_aliases,
+                )
+                st.session_state.blablador_preferred_models = preferred_chain
+                st.session_state.model_label_overrides = label_overrides
 
             if st.session_state.get("blablador_models_error"):
                 st.warning(
@@ -296,9 +472,70 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
                 options += blablador_chat_models
         if api_key_gai:
-            options += GEMINI_MODELS
+            config = st.session_state.get("models_config")
+            if not isinstance(config, dict):
+                config = _load_models_config(base_dir) or _default_models_config()
+                st.session_state.models_config = config
+            providers = (
+                config.get("providers")
+                if isinstance(config.get("providers"), dict)
+                else {}
+            )
+            g_conf = (
+                providers.get("gemini")
+                if isinstance(providers.get("gemini"), dict)
+                else {}
+            )
+            g_prefix = (
+                g_conf.get("prefix") if isinstance(g_conf.get("prefix"), str) else "G: "
+            )
+            g_models = (
+                g_conf.get("models") if isinstance(g_conf.get("models"), list) else []
+            )
+
+            label_overrides = st.session_state.get("model_label_overrides")
+            if not isinstance(label_overrides, dict):
+                label_overrides = {}
+                st.session_state.model_label_overrides = label_overrides
+            for m in g_models:
+                if isinstance(m, str) and m:
+                    options.append(m)
+                    label_overrides[m] = f"{g_prefix}{m}"
+
         if api_key:
-            options += GPT_MODELS
+            config = st.session_state.get("models_config")
+            if not isinstance(config, dict):
+                config = _load_models_config(base_dir) or _default_models_config()
+                st.session_state.models_config = config
+            providers = (
+                config.get("providers")
+                if isinstance(config.get("providers"), dict)
+                else {}
+            )
+            o_conf = (
+                providers.get("openai")
+                if isinstance(providers.get("openai"), dict)
+                else {}
+            )
+            o_prefix = (
+                o_conf.get("prefix") if isinstance(o_conf.get("prefix"), str) else "O: "
+            )
+            o_models = (
+                o_conf.get("models") if isinstance(o_conf.get("models"), list) else []
+            )
+
+            label_overrides = st.session_state.get("model_label_overrides")
+            if not isinstance(label_overrides, dict):
+                label_overrides = {}
+                st.session_state.model_label_overrides = label_overrides
+            for m in o_models:
+                if isinstance(m, str) and m:
+                    options.append(m)
+                    label_overrides[m] = f"{o_prefix}{m}"
+
+        # Sort options alphabetically by their rendered labels.
+        if options:
+            options = sorted(options, key=lambda v: _format_model_label(str(v)).lower())
 
         if options:
             st.markdown("---")
@@ -316,17 +553,65 @@ def render_sidebar(base_dir: str) -> SidebarState:
                 index=options.index(st.session_state.selected_model),
                 format_func=_format_model_label,
             )
+
+            config = st.session_state.get("models_config")
+            if not isinstance(config, dict):
+                config = _load_models_config(base_dir) or _default_models_config()
+                st.session_state.models_config = config
+            providers = (
+                config.get("providers")
+                if isinstance(config.get("providers"), dict)
+                else {}
+            )
+
+            note = None
+            if st.session_state.selected_model in blablador_chat_models:
+                bl_conf = (
+                    providers.get("blablador")
+                    if isinstance(providers.get("blablador"), dict)
+                    else {}
+                )
+                bl_aliases = (
+                    bl_conf.get("aliases")
+                    if isinstance(bl_conf.get("aliases"), list)
+                    else []
+                )
+                note = _blablador_note_for_model(
+                    str(st.session_state.selected_model), bl_aliases
+                ) or bl_conf.get("note")
+            elif st.session_state.selected_model in GEMINI_MODELS and api_key_gai:
+                g_conf = (
+                    providers.get("gemini")
+                    if isinstance(providers.get("gemini"), dict)
+                    else {}
+                )
+                note = g_conf.get("note")
+            elif st.session_state.selected_model in GPT_MODELS and api_key:
+                o_conf = (
+                    providers.get("openai")
+                    if isinstance(providers.get("openai"), dict)
+                    else {}
+                )
+                note = o_conf.get("note")
+
+            if isinstance(note, str) and note.strip():
+                st.caption(note.strip())
         else:
             st.session_state.selected_model = None
 
         if "previous_model" not in st.session_state:
             st.session_state.previous_model = st.session_state.selected_model
         elif st.session_state.previous_model != st.session_state.selected_model:
+            old_model = st.session_state.previous_model
+            new_model = st.session_state.selected_model
             st.session_state.greeted = False
             st.session_state.messages = []
             st.session_state.memory = ChatMessageHistory()
-            st.session_state.previous_model = st.session_state.selected_model
-            st.info("Model changed! Chat has been reset.")
+            st.session_state.previous_model = new_model
+            st.info(
+                f"Model changed: {_format_model_label_optional(old_model)} -> {_format_model_label_optional(new_model)}. "
+                "Chat has been reset."
+            )
 
         if st.session_state.selected_model in GEMINI_MODELS and api_key_gai:
             st.session_state.llm_initialized = True

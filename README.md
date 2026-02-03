@@ -47,7 +47,7 @@ CLAPP acknowledges the support of the [Blablador API](https://sdlaml.pages.jsc.f
   * **Fast Mode:** Quick responses with good quality (recommended for most uses)
   * **Swarm Mode:** Multi-agent refined responses for more complex questions (takes longer)
 * **Real-time Feedback:** Streams execution progress in real-time.
-* **Model Selection:** Choose between different OpenAI models (GPT-4o, GPT-4o-mini).
+* **Model Selection:** Choose between Blablador, OpenAI, and Gemini models (depending on which keys are available).
 
 ## Setup and Installation
 
@@ -67,9 +67,11 @@ This project uses `pyproject.toml` (PEP 621) with `uv`. CLASS (`classy`) does no
     ```
 
 3. **API Keys:**
-   * Create `.streamlit/secrets.toml` with your keys.
-   * Supported entries: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `BLABLADOR_API_KEY`, `BLABLADOR_BASE_URL`.
-   * Get your free Gemini key from https://aistudio.google.com/app/apikey
+   * The app starts without any keys, but you need at least one provider key to get model responses.
+   * **Streamlit Community Cloud**: set secrets in the app settings (no file needed in the repo).
+   * **Local**: either create `.streamlit/secrets.toml` or paste keys in the sidebar UI.
+   * Supported entries: `BLABLADOR_API_KEY`, `BLABLADOR_BASE_URL`, `OPENAI_API_KEY`, `GEMINI_API_KEY`.
+   * Gemini keys: https://aistudio.google.com/app/apikey
 
 4. **CLASS Installation:**
    * Install CLASS with `pip install classy` and verify it using the built-in test tool.
@@ -92,8 +94,30 @@ This project uses `pyproject.toml` (PEP 621) with `uv`. CLASS (`classy`) does no
     uv run streamlit run clapp/app.py
     ```
 
+## Lint & Format (Ruff)
+
+Install dev tools:
+```bash
+uv sync --extra dev
+```
+
+Run lint:
+```bash
+uv run ruff check .
+```
+
+Auto-fix what Ruff can:
+```bash
+uv run ruff check . --fix
+```
+
+Format:
+```bash
+uv run ruff format .
+```
+
 3. **Setup process:**
-   * Add your API keys in `.streamlit/secrets.toml`.
+   * If needed, provide API keys via Streamlit secrets (Cloud) or `.streamlit/secrets.toml` / sidebar inputs (local).
    * Initialize the application by clicking "Initialize with Selected Model".
    * Check if CLASS is installed using the provided test button.
    * Start chatting with the assistant about CLASS-related questions or cosmology code.

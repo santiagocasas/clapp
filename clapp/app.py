@@ -7,18 +7,16 @@ if ROOT_DIR not in sys.path:
 
 import streamlit as st
 
-from clapp.langchain_compat import ChatMessageHistory
-
 from clapp.config import (
     DEFAULT_BLABLADOR_BASE_URL,
     configure_environment,
     get_local_secret,
 )
+from clapp.langchain_compat import ChatMessageHistory
 from clapp.prompts import load_prompts
 from clapp.ui.chat import render_chat
 from clapp.ui.greeting import maybe_greet
 from clapp.ui.sidebar import SidebarState, render_sidebar
-
 
 configure_environment()
 PROMPTS = load_prompts()

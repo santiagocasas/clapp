@@ -3,15 +3,16 @@ from typing import Annotated
 import streamlit as st
 from autogen import ConversableAgent, LLMConfig, UpdateSystemMessage
 from autogen.agentchat import initiate_group_chat
-from autogen.agentchat.group.patterns import AutoPattern
 from autogen.agentchat.group import (
+    AgentNameTarget,
     AgentTarget,
     ContextVariables,
+    OnCondition,
     ReplyResult,
+    StringLLMCondition,
     TerminateTarget,
 )
-from autogen.agentchat.group import AgentNameTarget, OnCondition, StringLLMCondition
-from langchain_core.messages import HumanMessage
+from autogen.agentchat.group.patterns import AutoPattern
 
 from clapp.config import (
     BLABLADOR_MODELS,
@@ -21,7 +22,6 @@ from clapp.config import (
     normalize_base_url,
 )
 from clapp.prompts import load_prompts
-
 
 PROMPTS = load_prompts()
 
