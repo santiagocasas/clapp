@@ -25,13 +25,27 @@
           "note": "The latest Ministral from Dec.2.2025"
         },
         {
+          "contains": "Qwen3 235",
+          "alias": "5-Qwen3-235",
+          "note": "Long-context Qwen3 model from Alibaba"
+        },
+        {
+          "contains": "Qwen3-Coder-30B-A3B-Instruct",
+          "alias": "6-Qwen3-Coder-30B",
+          "note": "(Function calls) A code model from August 2025"
+        },
+        {
+          "contains": "Qwen3-Coder-Next",
+          "alias": "7-Qwen3-Coder-Next",
+          "note": "(Function calls) Newer Qwen3 Coder from Feb 2026"
+        },
+        {
           "contains": "Qwen3-Coder",
-          "alias": "5-Qwen3-30B",
-          "note": "(Function Call) A code model from August 2025"
+          "alias": "Qwen3-Coder"
         },
         {
           "contains": "GLM-4.7 Quantized",
-          "alias": "6-GLM-4.7-Quantized",
+          "alias": "8-GLM-4.7-Quantized",
           "note": "(Slow) Quantized - The best model as of January 22nd, 2026"
         },
         {
