@@ -1,6 +1,7 @@
 import ast
 import contextlib
 import difflib
+import html
 import io
 import os
 import re
@@ -53,6 +54,66 @@ def extract_strict_code_block(message: str):
 
 def format_code_block(code: str):
     return f"```python\n{code}\n```"
+
+
+def format_output_block(output: str) -> str:
+    cleaned = output.strip() if isinstance(output, str) else ""
+    if not cleaned:
+        cleaned = "(no output)"
+    return f"```text\n{cleaned}\n```"
+
+
+def _ensure_terminal_styles() -> None:
+    if st.session_state.get("_terminal_styles_loaded"):
+        return
+    st.markdown(
+        """
+        <style>
+        .terminal-output {
+          border: 1px solid var(--border-color, #e5e7eb);
+          background: var(--secondary-background-color, #f6f8fa);
+          color: var(--text-color, #111111);
+          border-radius: 8px;
+          padding: 0.75rem 0.9rem;
+          margin: 0.5rem 0 1rem 0;
+        }
+        .terminal-output .terminal-title {
+          font-size: 0.85rem;
+          font-weight: 600;
+          margin-bottom: 0.45rem;
+          opacity: 0.8;
+        }
+        .terminal-output pre {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
+          font-size: 0.85rem;
+          line-height: 1.4;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.session_state._terminal_styles_loaded = True
+
+
+def render_terminal_output(title: str, output: str) -> None:
+    _ensure_terminal_styles()
+    safe_title = html.escape(title or "Execution output")
+    safe_output = html.escape(output or "")
+    if not safe_output.strip():
+        safe_output = "(no output)"
+    st.markdown(
+        f"""
+        <div class="terminal-output">
+          <div class="terminal-title">{safe_title}</div>
+          <pre>{safe_output}</pre>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -792,8 +853,7 @@ def call_code(
             else:
                 st.info(f"Preflight notes: {note_text}")
         execution_output, plot_path = EXECUTOR.execute_code(code_to_execute)
-        st.subheader("Execution Output")
-        st.text(execution_output)
+        render_terminal_output("Execution output", execution_output)
 
         if os.path.exists(plot_path):
             st.success("Plot generated successfully!")
@@ -1032,8 +1092,7 @@ def call_code(
                 else:
                     st.info(f"Preflight notes: {note_text}")
             execution_output, plot_path = EXECUTOR.execute_code(code_to_execute)
-            st.subheader("Execution Output")
-            st.text(execution_output)
+            render_terminal_output("Execution output", execution_output)
 
             if os.path.exists(plot_path):
                 st.success("Plot generated successfully!")
@@ -1074,13 +1133,16 @@ def call_code(
                 st.markdown(
                     "> **Note**: Auto-fix is unavailable for this model. Please correct the code and try again."
                 )
-            st.markdown(f"> Last execution message:\n{execution_output}")
+            render_terminal_output("Last execution output", execution_output)
 
             with st.expander("View Failed Code", expanded=False):
                 st.markdown(format_code_block(code_to_execute))
             response_text = (
-                f"Execution completed with errors:\n{execution_output}\n\n"
-                f"The following code was executed:\n{format_code_block(code_to_execute)}\n"
+                "Execution completed with errors.\n\n"
+                "The following code was executed:\n"
+                f"{format_code_block(code_to_execute)}\n\n"
+                "Execution output:\n"
+                f"{format_output_block(execution_output)}"
             )
         else:
             if any(
@@ -1099,26 +1161,29 @@ def call_code(
                     "> **Note**: Code execution completed but with errors. "
                     "You can request changes by describing them in the chat."
                 )
-                st.markdown(f"> Execution message:\n{execution_output}")
+                render_terminal_output("Execution output", execution_output)
 
                 with st.expander("View Failed Code", expanded=False):
                     st.markdown(format_code_block(code_to_execute))
                 response_text = (
-                    f"Execution completed with errors:\n{execution_output}\n\n"
-                    f"The following code was executed:\n{format_code_block(code_to_execute)}\n"
+                    "Execution completed with errors.\n\n"
+                    "The following code was executed:\n"
+                    f"{format_code_block(code_to_execute)}\n\n"
+                    "Execution output:\n"
+                    f"{format_output_block(execution_output)}"
                 )
             else:
-                st.markdown(
-                    "> Code executed successfully. Last execution message:\n"
-                    f"{execution_output}"
-                )
+                render_terminal_output("Execution output", execution_output)
 
                 with st.expander("View Successfully Executed Code", expanded=False):
                     st.markdown(format_code_block(code_to_execute))
 
                 response_text = (
-                    f"Execution completed successfully:\n{execution_output}\n\n"
-                    f"The following code was executed:\n{format_code_block(code_to_execute)}"
+                    "Execution completed successfully.\n\n"
+                    "The following code was executed:\n"
+                    f"{format_code_block(code_to_execute)}\n\n"
+                    "Execution output:\n"
+                    f"{format_output_block(execution_output)}"
                 )
 
                 if os.path.exists(plot_path):
