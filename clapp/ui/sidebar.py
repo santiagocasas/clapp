@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from typing import Any
 
 import requests
 import streamlit as st
@@ -126,11 +127,7 @@ def extract_blablador_models(models_payload):
             continue
         if model_id.startswith("text-"):
             continue
-        client_count = item.get("client_count")
-        try:
-            client_count = int(client_count)
-        except Exception:
-            client_count = 0
+        client_count = _safe_int(item.get("client_count"))
         models.append({"id": model_id, "client_count": client_count})
     return models
 
@@ -246,6 +243,45 @@ def _default_models_config() -> dict:
             },
         },
     }
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
+def _as_dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _as_str_dict(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: val
+        for key, val in value.items()
+        if isinstance(key, str) and isinstance(val, str)
+    }
+
+
+def _as_str(value: Any, default: str) -> str:
+    return value if isinstance(value, str) else default
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return 0
 
 
 def _format_model_label_optional(model_id) -> str:
@@ -418,33 +454,17 @@ def render_sidebar(base_dir: str) -> SidebarState:
         blablador_models = []
         blablador_chat_models = []
         if st.session_state.saved_api_key_blablador:
-            config = _load_models_config(base_dir) or _default_models_config()
-            st.session_state.models_config = config
-            providers = (
-                config.get("providers")
-                if isinstance(config.get("providers"), dict)
-                else {}
-            )
-            bl_conf = (
-                providers.get("blablador")
-                if isinstance(providers.get("blablador"), dict)
-                else {}
-            )
-            b_prefix = (
-                bl_conf.get("prefix")
-                if isinstance(bl_conf.get("prefix"), str)
-                else "B: "
-            )
-            b_priority_contains = (
+            config = _as_dict(st.session_state.get("models_config"))
+            if not config:
+                config = _load_models_config(base_dir) or _default_models_config()
+                st.session_state.models_config = config
+            providers: dict[str, Any] = _as_dict(config.get("providers"))
+            bl_conf: dict[str, Any] = _as_dict(providers.get("blablador"))
+            b_prefix: str = _as_str(bl_conf.get("prefix"), "B: ")
+            b_priority_contains: list[str] = _as_str_list(
                 bl_conf.get("priority_contains")
-                if isinstance(bl_conf.get("priority_contains"), list)
-                else []
             )
-            b_aliases = (
-                bl_conf.get("aliases")
-                if isinstance(bl_conf.get("aliases"), list)
-                else []
-            )
+            b_aliases: list[dict[str, Any]] = _as_dict_list(bl_conf.get("aliases"))
             st.session_state.blablador_priority_contains = b_priority_contains
 
             needs_refresh = (
@@ -462,12 +482,12 @@ def render_sidebar(base_dir: str) -> SidebarState:
                     progress.progress(20)
                     blablador_models = get_live_blablador_models()
                     progress.progress(60)
-                    meta = st.session_state.get("blablador_models_meta", {})
+                    meta = _as_dict(st.session_state.get("blablador_models_meta"))
                     blablador_chat_models = [
                         model_id
                         for model_id in blablador_models
                         if _is_chat_eligible_blablador_model(
-                            model_id, int(meta.get(model_id, 0))
+                            model_id, _safe_int(meta.get(model_id, 0))
                         )
                     ]
                     progress.progress(85)
@@ -487,12 +507,12 @@ def render_sidebar(base_dir: str) -> SidebarState:
                 progress.empty()
             else:
                 blablador_models = st.session_state.get("blablador_models", [])
-                meta = st.session_state.get("blablador_models_meta", {})
+                meta = _as_dict(st.session_state.get("blablador_models_meta"))
                 blablador_chat_models = [
                     model_id
                     for model_id in blablador_models
                     if _is_chat_eligible_blablador_model(
-                        model_id, int(meta.get(model_id, 0))
+                        model_id, _safe_int(meta.get(model_id, 0))
                     )
                 ]
                 preferred_chain = _build_preferred_chain(
@@ -537,62 +557,38 @@ def render_sidebar(base_dir: str) -> SidebarState:
 
                 options += blablador_chat_models
         if api_key_gai:
-            config = st.session_state.get("models_config")
-            if not isinstance(config, dict):
+            config = _as_dict(st.session_state.get("models_config"))
+            if not config:
                 config = _load_models_config(base_dir) or _default_models_config()
                 st.session_state.models_config = config
-            providers = (
-                config.get("providers")
-                if isinstance(config.get("providers"), dict)
-                else {}
-            )
-            g_conf = (
-                providers.get("gemini")
-                if isinstance(providers.get("gemini"), dict)
-                else {}
-            )
-            g_prefix = (
-                g_conf.get("prefix") if isinstance(g_conf.get("prefix"), str) else "G: "
-            )
-            g_models = (
-                g_conf.get("models") if isinstance(g_conf.get("models"), list) else []
-            )
+            providers = _as_dict(config.get("providers"))
+            g_conf = _as_dict(providers.get("gemini"))
+            g_prefix = _as_str(g_conf.get("prefix"), "G: ")
+            g_models = _as_str_list(g_conf.get("models"))
 
-            label_overrides = st.session_state.get("model_label_overrides")
-            if not isinstance(label_overrides, dict):
-                label_overrides = {}
-                st.session_state.model_label_overrides = label_overrides
+            label_overrides: dict[str, str] = _as_str_dict(
+                st.session_state.get("model_label_overrides")
+            )
+            st.session_state.model_label_overrides = label_overrides
             for m in g_models:
                 if isinstance(m, str) and m:
                     options.append(m)
                     label_overrides[m] = f"{g_prefix}{m}"
 
         if api_key:
-            config = st.session_state.get("models_config")
-            if not isinstance(config, dict):
+            config = _as_dict(st.session_state.get("models_config"))
+            if not config:
                 config = _load_models_config(base_dir) or _default_models_config()
                 st.session_state.models_config = config
-            providers = (
-                config.get("providers")
-                if isinstance(config.get("providers"), dict)
-                else {}
-            )
-            o_conf = (
-                providers.get("openai")
-                if isinstance(providers.get("openai"), dict)
-                else {}
-            )
-            o_prefix = (
-                o_conf.get("prefix") if isinstance(o_conf.get("prefix"), str) else "O: "
-            )
-            o_models = (
-                o_conf.get("models") if isinstance(o_conf.get("models"), list) else []
-            )
+            providers = _as_dict(config.get("providers"))
+            o_conf = _as_dict(providers.get("openai"))
+            o_prefix = _as_str(o_conf.get("prefix"), "O: ")
+            o_models = _as_str_list(o_conf.get("models"))
 
-            label_overrides = st.session_state.get("model_label_overrides")
-            if not isinstance(label_overrides, dict):
-                label_overrides = {}
-                st.session_state.model_label_overrides = label_overrides
+            label_overrides: dict[str, str] = _as_str_dict(
+                st.session_state.get("model_label_overrides")
+            )
+            st.session_state.model_label_overrides = label_overrides
             for m in o_models:
                 if isinstance(m, str) and m:
                     options.append(m)
@@ -619,44 +615,24 @@ def render_sidebar(base_dir: str) -> SidebarState:
                 format_func=_format_model_label,
             )
 
-            config = st.session_state.get("models_config")
-            if not isinstance(config, dict):
+            config: dict[str, Any] = _as_dict(st.session_state.get("models_config"))
+            if not config:
                 config = _load_models_config(base_dir) or _default_models_config()
                 st.session_state.models_config = config
-            providers = (
-                config.get("providers")
-                if isinstance(config.get("providers"), dict)
-                else {}
-            )
+            providers: dict[str, Any] = _as_dict(config.get("providers"))
 
             note = None
             if st.session_state.selected_model in blablador_chat_models:
-                bl_conf = (
-                    providers.get("blablador")
-                    if isinstance(providers.get("blablador"), dict)
-                    else {}
-                )
-                bl_aliases = (
-                    bl_conf.get("aliases")
-                    if isinstance(bl_conf.get("aliases"), list)
-                    else []
-                )
+                bl_conf: dict[str, Any] = _as_dict(providers.get("blablador"))
+                bl_aliases = _as_dict_list(bl_conf.get("aliases"))
                 note = _blablador_note_for_model(
                     str(st.session_state.selected_model), bl_aliases
                 ) or bl_conf.get("note")
             elif st.session_state.selected_model in GEMINI_MODELS and api_key_gai:
-                g_conf = (
-                    providers.get("gemini")
-                    if isinstance(providers.get("gemini"), dict)
-                    else {}
-                )
+                g_conf: dict[str, Any] = _as_dict(providers.get("gemini"))
                 note = g_conf.get("note")
             elif st.session_state.selected_model in GPT_MODELS and api_key:
-                o_conf = (
-                    providers.get("openai")
-                    if isinstance(providers.get("openai"), dict)
-                    else {}
-                )
+                o_conf: dict[str, Any] = _as_dict(providers.get("openai"))
                 note = o_conf.get("note")
 
             if isinstance(note, str) and note.strip():
@@ -702,6 +678,15 @@ def render_sidebar(base_dir: str) -> SidebarState:
                 key="mode_is_fast",
                 label_visibility="collapsed",
             )
+
+            if (
+                st.session_state.get("mode_is_fast") != "Fast Mode"
+                and st.session_state.selected_model in blablador_chat_models
+            ):
+                st.warning(
+                    "Deep Thought Mode is not available for Blablador models yet."
+                    " Switch to Fast Mode or choose an OpenAI/Gemini model."
+                )
 
             st.markdown("<div style='height: 0.5em'></div>", unsafe_allow_html=True)
             desc_cols = st.columns(2)
@@ -842,7 +827,10 @@ def render_sidebar(base_dir: str) -> SidebarState:
             from clapp.services.orchestrator import run_code_request
 
             response = run_code_request()
-            st.session_state.memory.add_ai_message(response.content)
+            memory = st.session_state.memory
+            add_ai_message = getattr(memory, "add_ai_message", None)
+            if callable(add_ai_message):
+                add_ai_message(response.content)
             st.session_state.messages.append(
                 {"role": "assistant", "content": response.content}
             )
